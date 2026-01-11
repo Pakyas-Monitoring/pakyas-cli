@@ -139,7 +139,7 @@ pub async fn login(ctx: &Context, args: LoginArgs, verbose: bool) -> Result<()> 
     if verbose {
         eprintln!("[verbose] Using browser-based authentication");
     }
-    login_with_browser(ctx).await
+    login_with_browser(ctx, verbose).await
 }
 
 /// Login with an API key directly.
@@ -322,7 +322,7 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
 /// Browser-based login flow.
 ///
 /// Opens a browser for authentication and polls for completion.
-async fn login_with_browser(ctx: &Context) -> Result<()> {
+async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
     let client = reqwest::Client::new();
     let api_url = ctx.api_url();
 
@@ -343,7 +343,20 @@ async fn login_with_browser(ctx: &Context) -> Result<()> {
     let init_response = client.post(&init_url).json(&init_request).send().await?;
 
     if !init_response.status().is_success() {
-        return Err(CliError::api("Failed to initialize authentication").into());
+        let status = init_response.status();
+        let error_body = init_response.text().await.unwrap_or_default();
+
+        if verbose {
+            eprintln!("[verbose] Server returned {}: {}", status, error_body);
+        }
+
+        // Try to parse as JSON error response
+        let error_msg = serde_json::from_str::<serde_json::Value>(&error_body)
+            .ok()
+            .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
+            .unwrap_or_else(|| format!("Server returned {}", status));
+
+        return Err(CliError::api(format!("Failed to initialize authentication: {}", error_msg)).into());
     }
 
     let init_data: InitCliAuthResponse = init_response.json().await?;
