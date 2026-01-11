@@ -301,6 +301,10 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 git clone https://github.com/pakyas/pakyas-cli.git
 cd pakyas-cli
 
+# Install and activate pre-commit hooks
+brew install lefthook    # or: cargo install lefthook
+lefthook install
+
 # Build (uses production API URLs by default)
 cargo build
 
@@ -317,6 +321,8 @@ cargo clippy
 cargo install cargo-tarpaulin
 cargo tarpaulin --all-features
 ```
+
+Pre-commit hooks will automatically run `cargo fmt --check`, `cargo clippy`, and `cargo test` before each commit.
 
 ### Architecture
 

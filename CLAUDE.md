@@ -19,6 +19,24 @@ For local development with custom API endpoints:
 API_URL=http://localhost:8080 PING_URL=http://localhost:8787 cargo build
 ```
 
+## Pre-commit Hooks
+
+This project uses [lefthook](https://github.com/evilmartians/lefthook) for pre-commit hooks.
+
+```bash
+# Install lefthook (choose one)
+brew install lefthook          # macOS/Linux with Homebrew
+cargo install lefthook         # With Cargo
+
+# Activate hooks (run once after cloning)
+lefthook install
+```
+
+On each commit, the following checks run automatically:
+- `cargo fmt --check` - Code formatting
+- `cargo clippy -- -D warnings` - Linting (warnings as errors)
+- `cargo test --all-features` - Full test suite
+
 ## Architecture
 
 Pakyas CLI is a Rust CLI for a cron job monitoring service. It uses the heartbeat pattern - jobs send pings to Pakyas, and if expected pings don't arrive, alerts are triggered.
