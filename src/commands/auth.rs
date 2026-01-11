@@ -106,6 +106,45 @@ struct CliAuthOrgInfo {
 }
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Print a comprehensive login summary.
+fn print_login_summary(
+    email: Option<&str>,
+    org_name: Option<&str>,
+    project_name: Option<&str>,
+    api_key: Option<&str>,
+) {
+    println!();
+    print_success("Login successful!");
+    println!();
+
+    if let Some(email) = email {
+        println!("  Email:        {}", email);
+    }
+    if let Some(org_name) = org_name {
+        println!("  Organization: {}", org_name);
+    }
+    if let Some(project_name) = project_name {
+        println!("  Project:      {}", project_name);
+    } else {
+        println!("  Project:      (none)");
+    }
+    if let Some(api_key) = api_key {
+        let prefix = if api_key.len() > 12 {
+            &api_key[..12]
+        } else {
+            api_key
+        };
+        println!("  API Key:      {}...", prefix);
+    }
+
+    println!();
+    print_info("Run 'pakyas check create' to create your first check");
+}
+
+// ============================================================================
 // Commands
 // ============================================================================
 
@@ -169,7 +208,11 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
         config.active_org_id = Some(selected_org.id.to_string());
         config.active_org_name = Some(selected_org.name.clone());
 
-        // Also fetch and set the first project for this org
+        // Clear stale project data first
+        config.active_project_id = None;
+        config.active_project_name = None;
+
+        // Fetch and set the first project for this org
         let projects_url = format!("/api/v1/projects?org_id={}", selected_org.id);
         if let Ok(projects) = client.get::<Vec<ProjectResponse>>(&projects_url).await {
             if let Some(first_project) = projects.first() {
@@ -181,13 +224,12 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
         config.save()?;
     }
 
-    print_success("Logged in successfully");
-    if let Some(org_name) = &config.active_org_name {
-        print_info(&format!("Active organization: {}", org_name));
-    }
-    if let Some(project_name) = &config.active_project_name {
-        print_info(&format!("Active project: {}", project_name));
-    }
+    print_login_summary(
+        None,
+        config.active_org_name.as_deref(),
+        config.active_project_name.as_deref(),
+        Some(api_key),
+    );
 
     Ok(())
 }
@@ -289,7 +331,7 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
     // Save credentials
     let creds = Credentials {
         api_key: Some(api_key.full_key.clone()),
-        user_email: Some(email),
+        user_email: Some(email.clone()),
         user_id: Some(user.id.to_string()),
     };
     creds.save()?;
@@ -299,8 +341,12 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
     config.active_org_id = Some(selected_org.id.to_string());
     config.active_org_name = Some(selected_org.name.clone());
 
+    // Clear stale project data first
+    config.active_project_id = None;
+    config.active_project_name = None;
+
     // Fetch and set the first project for this org
-    let api_client = ApiClient::with_api_key(ctx, api_key.full_key)?;
+    let api_client = ApiClient::with_api_key(ctx, api_key.full_key.clone())?;
     let projects_url = format!("/api/v1/projects?org_id={}", selected_org.id);
     if let Ok(projects) = api_client.get::<Vec<ProjectResponse>>(&projects_url).await {
         if let Some(first_project) = projects.first() {
@@ -311,10 +357,12 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
 
     config.save()?;
 
-    print_success("Login complete! API key created and stored.");
-    if let Some(project_name) = &config.active_project_name {
-        print_info(&format!("Active project: {}", project_name));
-    }
+    print_login_summary(
+        Some(&email),
+        Some(&selected_org.name),
+        config.active_project_name.as_deref(),
+        Some(&api_key.full_key),
+    );
 
     Ok(())
 }
@@ -435,6 +483,7 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                     .ok_or_else(|| CliError::api("Missing API key in response"))?;
 
                 // Save credentials
+                let user_email = poll_data.user_email.clone();
                 let creds = Credentials {
                     api_key: Some(api_key.clone()),
                     user_email: poll_data.user_email,
@@ -448,8 +497,12 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                     config.active_org_id = Some(org.id.to_string());
                     config.active_org_name = Some(org.name.clone());
 
+                    // Clear stale project data first
+                    config.active_project_id = None;
+                    config.active_project_name = None;
+
                     // Fetch and set the first project for this org
-                    let api_client = ApiClient::with_api_key(ctx, api_key)?;
+                    let api_client = ApiClient::with_api_key(ctx, api_key.clone())?;
                     let projects_url = format!("/api/v1/projects?org_id={}", org.id);
                     if let Ok(projects) =
                         api_client.get::<Vec<ProjectResponse>>(&projects_url).await
@@ -462,15 +515,19 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
 
                     config.save()?;
 
-                    print_success(&format!(
-                        "Logged in successfully! Active organization: {}",
-                        org.name
-                    ));
-                    if let Some(project_name) = &config.active_project_name {
-                        print_info(&format!("Active project: {}", project_name));
-                    }
+                    print_login_summary(
+                        user_email.as_deref(),
+                        Some(&org.name),
+                        config.active_project_name.as_deref(),
+                        Some(&api_key),
+                    );
                 } else {
-                    print_success("Logged in successfully!");
+                    print_login_summary(
+                        user_email.as_deref(),
+                        None,
+                        None,
+                        Some(&api_key),
+                    );
                 }
 
                 return Ok(());
