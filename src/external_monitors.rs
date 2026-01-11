@@ -107,9 +107,18 @@ pub struct CheckCronitor {
 /// Resolved monitor target - ready to send pings
 #[derive(Debug, Clone)]
 pub enum MonitorTarget {
-    Healthchecks { endpoint: String, uuid: String },
-    Cronitor { endpoint: String, api_key: String, monitor_key: String },
-    Webhook { url: String },
+    Healthchecks {
+        endpoint: String,
+        uuid: String,
+    },
+    Cronitor {
+        endpoint: String,
+        api_key: String,
+        monitor_key: String,
+    },
+    Webhook {
+        url: String,
+    },
 }
 
 impl MonitorTarget {
@@ -128,7 +137,11 @@ impl MonitorTarget {
             MonitorTarget::Healthchecks { endpoint, uuid } => {
                 format!("{}/{}", endpoint, uuid)
             }
-            MonitorTarget::Cronitor { endpoint, monitor_key, .. } => {
+            MonitorTarget::Cronitor {
+                endpoint,
+                monitor_key,
+                ..
+            } => {
                 // Hide API key
                 format!("{}/p/***/{}", endpoint, monitor_key)
             }

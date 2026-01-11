@@ -1,6 +1,6 @@
 use crate::cli::OutputFormat;
 use crate::config::Context;
-use console::{style, Style};
+use console::{Style, style};
 use serde::Serialize;
 use tabled::{Table, Tabled};
 

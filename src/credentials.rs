@@ -239,7 +239,10 @@ mod tests {
             validate_api_key("pk_1234567890123"), // 18 chars
             Err(CliError::InvalidApiKey)
         ));
-        assert!(matches!(validate_api_key("pk_"), Err(CliError::InvalidApiKey)));
+        assert!(matches!(
+            validate_api_key("pk_"),
+            Err(CliError::InvalidApiKey)
+        ));
     }
 
     #[test]
@@ -262,10 +265,7 @@ mod tests {
         let loaded = Credentials::load_from_path(&path).unwrap();
 
         // Should use env var, not file
-        assert_eq!(
-            loaded.api_key,
-            Some("pk_env_1234567890123456".to_string())
-        );
+        assert_eq!(loaded.api_key, Some("pk_env_1234567890123456".to_string()));
         // Email is None because env var path doesn't load from file
         assert!(loaded.user_email.is_none());
 

@@ -3,8 +3,8 @@ use crate::credentials::Credentials;
 use crate::error::CliError;
 use anyhow::Result;
 use reqwest::{Client, Response, StatusCode};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 const TIMEOUT_SECS: u64 = 30;

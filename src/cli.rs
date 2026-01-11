@@ -143,7 +143,12 @@ pub enum CheckCommands {
         name: Option<String>,
 
         /// Cron expression (e.g., "0 2 * * *" for daily at 2am)
-        #[arg(long, alias = "schedule", value_name = "CRON", conflicts_with = "every")]
+        #[arg(
+            long,
+            alias = "schedule",
+            value_name = "CRON",
+            conflicts_with = "every"
+        )]
         cron: Option<String>,
 
         /// Timezone for cron (IANA format, e.g., "Asia/Manila")

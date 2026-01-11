@@ -174,9 +174,7 @@ impl Context {
         // Default: same base as API URL but without /api path
         // e.g., https://api.pakyas.com -> https://app.pakyas.com
         let api_url = self.api_url();
-        api_url
-            .replace("//api.", "//app.")
-            .replace("/api", "")
+        api_url.replace("//api.", "//app.").replace("/api", "")
     }
 
     pub fn active_org_id(&self) -> Option<&str> {
@@ -373,7 +371,11 @@ color = false
     #[test]
     fn test_config_save_creates_parent_dirs() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("nested").join("dir").join("config.toml");
+        let path = temp_dir
+            .path()
+            .join("nested")
+            .join("dir")
+            .join("config.toml");
 
         let config = Config::default();
         config.save_to_path(&path).unwrap();
@@ -405,7 +407,10 @@ color = false
         assert_eq!(loaded.api_url, "https://saved.api.com");
         assert_eq!(loaded.ping_url, "https://saved.ping.com");
         assert_eq!(loaded.active_org_id, Some("saved-org".to_string()));
-        assert_eq!(loaded.active_org_timezone, Some("America/New_York".to_string()));
+        assert_eq!(
+            loaded.active_org_timezone,
+            Some("America/New_York".to_string())
+        );
     }
 
     // ============== Context Tests ==============

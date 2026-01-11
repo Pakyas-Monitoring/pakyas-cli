@@ -7,7 +7,7 @@ use crate::config::Context;
 use crate::output::{print_error, print_info, print_success};
 use crate::ua::user_agent;
 use crate::update_cache::{check_for_updates, semver_gt};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -129,10 +129,7 @@ async fn download_and_verify(archive_url: &str, checksum_url: &str) -> Result<Ve
         .await?;
 
     if !response.status().is_success() {
-        return Err(anyhow!(
-            "Failed to download: HTTP {}",
-            response.status()
-        ));
+        return Err(anyhow!("Failed to download: HTTP {}", response.status()));
     }
 
     let total_size = response.content_length().unwrap_or(0);
@@ -271,21 +268,20 @@ mod tests {
     fn test_detect_target() {
         let result = detect_target();
         // Should succeed on supported platforms
-        assert!(result.is_ok() || cfg!(not(any(
-            all(target_os = "macos", target_arch = "x86_64"),
-            all(target_os = "macos", target_arch = "aarch64"),
-            all(target_os = "linux", target_arch = "x86_64"),
-            all(target_os = "linux", target_arch = "aarch64"),
-        ))));
+        assert!(
+            result.is_ok()
+                || cfg!(not(any(
+                    all(target_os = "macos", target_arch = "x86_64"),
+                    all(target_os = "macos", target_arch = "aarch64"),
+                    all(target_os = "linux", target_arch = "x86_64"),
+                    all(target_os = "linux", target_arch = "aarch64"),
+                )))
+        );
     }
 
     #[test]
     fn test_build_download_url() {
-        let url = build_download_url(
-            "https://api.pakyas.com",
-            "1.0.0",
-            "x86_64-apple-darwin",
-        );
+        let url = build_download_url("https://api.pakyas.com", "1.0.0", "x86_64-apple-darwin");
         assert_eq!(
             url,
             "https://api.pakyas.com/cli/download/1.0.0/pakyas-1.0.0-x86_64-apple-darwin.tar.gz"

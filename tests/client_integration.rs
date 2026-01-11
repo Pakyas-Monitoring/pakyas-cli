@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{create_test_client, create_test_client_no_auth, TEST_API_KEY};
+use common::{TEST_API_KEY, create_test_client, create_test_client_no_auth};
 use pakyas_cli::error::CliError;
 use serde::{Deserialize, Serialize};
 use wiremock::matchers::{header, method, path};
@@ -30,12 +30,10 @@ async fn test_get_success() {
     Mock::given(method("GET"))
         .and(path("/api/v1/checks"))
         .and(header("Authorization", format!("Bearer {}", TEST_API_KEY)))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "123",
-                "name": "test-check"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "123",
+            "name": "test-check"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -56,12 +54,10 @@ async fn test_post_success() {
         .and(path("/api/v1/checks"))
         .and(header("Authorization", format!("Bearer {}", TEST_API_KEY)))
         .and(header("Content-Type", "application/json"))
-        .respond_with(
-            ResponseTemplate::new(201).set_body_json(serde_json::json!({
-                "id": "new-id",
-                "name": "new-check"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "id": "new-id",
+            "name": "new-check"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -84,12 +80,10 @@ async fn test_put_success() {
     Mock::given(method("PUT"))
         .and(path("/api/v1/checks/123"))
         .and(header("Authorization", format!("Bearer {}", TEST_API_KEY)))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "123",
-                "name": "updated-check"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "123",
+            "name": "updated-check"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -131,12 +125,10 @@ async fn test_post_unauth_no_header() {
     // This mock will succeed - we just verify no auth header was sent
     Mock::given(method("POST"))
         .and(path("/api/v1/auth/login"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "user-123",
-                "name": "Test User"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "user-123",
+            "name": "Test User"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -154,7 +146,10 @@ async fn test_post_unauth_no_header() {
         password: "secret".to_string(),
     };
 
-    let result: TestResponse = client.post_unauth("/api/v1/auth/login", &body).await.unwrap();
+    let result: TestResponse = client
+        .post_unauth("/api/v1/auth/login", &body)
+        .await
+        .unwrap();
 
     assert_eq!(result.id, "user-123");
 }
@@ -170,12 +165,10 @@ async fn test_bearer_token_header() {
     Mock::given(method("GET"))
         .and(path("/api/v1/orgs"))
         .and(header("Authorization", format!("Bearer {}", custom_key)))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "org-1",
-                "name": "Test Org"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "org-1",
+            "name": "Test Org"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -194,12 +187,10 @@ async fn test_content_type_json() {
     Mock::given(method("POST"))
         .and(path("/api/v1/projects"))
         .and(header("Content-Type", "application/json"))
-        .respond_with(
-            ResponseTemplate::new(201).set_body_json(serde_json::json!({
-                "id": "proj-1",
-                "name": "Test Project"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "id": "proj-1",
+            "name": "Test Project"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;
@@ -242,11 +233,9 @@ async fn test_403_extracts_error_message() {
 
     Mock::given(method("DELETE"))
         .and(path("/api/v1/checks/123"))
-        .respond_with(
-            ResponseTemplate::new(403).set_body_json(serde_json::json!({
-                "error": "You do not have permission to delete this check"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "error": "You do not have permission to delete this check"
+        })))
         .mount(&mock_server)
         .await;
 
@@ -271,11 +260,9 @@ async fn test_404_not_found() {
 
     Mock::given(method("GET"))
         .and(path("/api/v1/checks/nonexistent"))
-        .respond_with(
-            ResponseTemplate::new(404).set_body_json(serde_json::json!({
-                "message": "Check not found"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "message": "Check not found"
+        })))
         .mount(&mock_server)
         .await;
 
@@ -317,7 +304,11 @@ async fn test_500_server_error() {
     let cli_err = err.downcast_ref::<CliError>().unwrap();
     match cli_err {
         CliError::Api(msg) => {
-            assert!(msg.contains("500") || msg.contains("failed"), "Error message: {}", msg);
+            assert!(
+                msg.contains("500") || msg.contains("failed"),
+                "Error message: {}",
+                msg
+            );
         }
         _ => panic!("Expected CliError::Api, got {:?}", cli_err),
     }
@@ -331,12 +322,10 @@ async fn test_base_url_trailing_slash() {
 
     Mock::given(method("GET"))
         .and(path("/api/test"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "id": "1",
-                "name": "test"
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "1",
+            "name": "test"
+        })))
         .expect(1)
         .mount(&mock_server)
         .await;

@@ -97,11 +97,15 @@ impl CheckCache {
     }
 
     /// Update cache with a single check
-    pub fn set(&mut self, project_id: &str, slug: &str, check_id: Uuid, public_id: Uuid, name: String) {
-        let project = self
-            .projects
-            .entry(project_id.to_string())
-            .or_default();
+    pub fn set(
+        &mut self,
+        project_id: &str,
+        slug: &str,
+        check_id: Uuid,
+        public_id: Uuid,
+        name: String,
+    ) {
+        let project = self.projects.entry(project_id.to_string()).or_default();
         project.insert(
             slug.to_string(),
             CacheEntry {
@@ -119,10 +123,7 @@ impl CheckCache {
         I: IntoIterator<Item = C>,
         C: CheckLike,
     {
-        let project = self
-            .projects
-            .entry(project_id.to_string())
-            .or_default();
+        let project = self.projects.entry(project_id.to_string()).or_default();
 
         // Clear stale entries first
         project.retain(|_, entry| !entry.is_stale());
@@ -219,7 +220,13 @@ mod tests {
         let check_id = Uuid::new_v4();
         let public_id = Uuid::new_v4();
 
-        cache.set(project_id, slug, check_id, public_id, "My Check".to_string());
+        cache.set(
+            project_id,
+            slug,
+            check_id,
+            public_id,
+            "My Check".to_string(),
+        );
 
         let entry = cache.get(project_id, slug).unwrap();
         assert_eq!(entry.public_id, public_id);
@@ -298,7 +305,13 @@ mod tests {
         let check_id = Uuid::new_v4();
         let public_id = Uuid::new_v4();
 
-        cache.set(project_id, "my-slug", check_id, public_id, "Test".to_string());
+        cache.set(
+            project_id,
+            "my-slug",
+            check_id,
+            public_id,
+            "Test".to_string(),
+        );
 
         let entry = cache.get_by_check_id(project_id, &check_id).unwrap();
         assert_eq!(entry.public_id, public_id);

@@ -3,7 +3,7 @@ use crate::commands::check::resolve_public_id;
 use crate::config::Context;
 use crate::error::CliError;
 use crate::external_monitors::ExternalMonitorConfig;
-use crate::external_ping::{dispatch_await_any_success, dispatch_external_pings, PingEvent};
+use crate::external_ping::{PingEvent, dispatch_await_any_success, dispatch_external_pings};
 use crate::output::{print_error, print_warning};
 use crate::ua::user_agent;
 use anyhow::Result;
@@ -61,13 +61,20 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
     let (monitors, migration_mode) = load_external_config(&args, verbose);
 
     if verbose {
-        eprintln!("[verbose] Loaded {} external monitor(s) for '{}'", monitors.len(), args.slug);
+        eprintln!(
+            "[verbose] Loaded {} external monitor(s) for '{}'",
+            monitors.len(),
+            args.slug
+        );
         eprintln!("[verbose] Migration mode: {}", migration_mode);
     }
 
     // Send start ping to pakyas (with run_id for pairing)
     if verbose {
-        eprintln!("[verbose] Sending start ping to pakyas: {}/{}/start", ping_url, public_id);
+        eprintln!(
+            "[verbose] Sending start ping to pakyas: {}/{}/start",
+            ping_url, public_id
+        );
     }
     send_ping_direct_inner(&ping_url, public_id, "/start", Some(&run_id)).await?;
     if verbose {

@@ -113,11 +113,7 @@ fn build_output(stderr: &str) -> Option<String> {
 }
 
 /// Send a ping to a single monitor target
-async fn send_to_target(
-    client: &Client,
-    target: &MonitorTarget,
-    event: &PingEvent,
-) -> Result<()> {
+async fn send_to_target(client: &Client, target: &MonitorTarget, event: &PingEvent) -> Result<()> {
     match target {
         MonitorTarget::Healthchecks { endpoint, uuid } => {
             send_healthchecks(client, endpoint, uuid, event).await
@@ -166,10 +162,7 @@ async fn send_healthchecks(
     if response.status().is_success() {
         Ok(())
     } else {
-        anyhow::bail!(
-            "healthchecks.io returned status {}",
-            response.status()
-        )
+        anyhow::bail!("healthchecks.io returned status {}", response.status())
     }
 }
 
@@ -252,7 +245,10 @@ pub fn dispatch_external_pings(
 ) -> Option<tokio::task::JoinHandle<()>> {
     if monitors.is_empty() {
         if verbose {
-            eprintln!("[verbose] No external monitors configured for '{}'", event.check_slug);
+            eprintln!(
+                "[verbose] No external monitors configured for '{}'",
+                event.check_slug
+            );
         }
         return None;
     }
@@ -296,7 +292,10 @@ pub fn dispatch_external_pings(
                     match send_to_target(&client, &target, &event).await {
                         Ok(_) => {
                             if verbose {
-                                eprintln!("[verbose] {} ping succeeded: {}", target_name, target_url);
+                                eprintln!(
+                                    "[verbose] {} ping succeeded: {}",
+                                    target_name, target_url
+                                );
                             }
                         }
                         Err(e) => {

@@ -2,6 +2,7 @@ use crate::cache::{CheckCache, CheckLike};
 use crate::cli::CheckCommands;
 use crate::client::ApiClient;
 use crate::config::Context;
+use crate::cron::{effective_period_from_cron, next_cron_times_in_tz, validate_cron_expression};
 use crate::error::CliError;
 use crate::output::{format_status, print_output, print_single, print_success, print_warning};
 use anyhow::{Result, anyhow};
@@ -9,7 +10,6 @@ use chrono::{DateTime, Utc};
 use dialoguer::{Confirm, Input, Select};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use crate::cron::{effective_period_from_cron, next_cron_times_in_tz, validate_cron_expression};
 use tabled::Tabled;
 use uuid::Uuid;
 
@@ -72,7 +72,6 @@ pub struct Check {
     #[serde(default)]
     pub notify_on_recovery: Option<bool>,
 }
-
 
 fn default_late_after_ratio() -> f32 {
     0.2
@@ -230,8 +229,19 @@ pub async fn handle(ctx: &Context, command: CheckCommands, verbose: bool) -> Res
             interactive,
         } => {
             create(
-                ctx, slug, name, cron, tz, every, grace, description, json, quiet, dry_run,
-                interactive, verbose,
+                ctx,
+                slug,
+                name,
+                cron,
+                tz,
+                every,
+                grace,
+                description,
+                json,
+                quiet,
+                dry_run,
+                interactive,
+                verbose,
             )
             .await
         }
@@ -350,7 +360,9 @@ async fn create(
                pakyas check create {} --every 5m\n\n\
              Interactive:\n\
                pakyas check create {} -i",
-            slug, slug, slug
+            slug,
+            slug,
+            slug
         ));
     }
 
@@ -552,11 +564,7 @@ async fn create_interactive(
                 .with_prompt("Description (optional)")
                 .allow_empty(true)
                 .interact_text()?;
-            if desc.is_empty() {
-                None
-            } else {
-                Some(desc)
-            }
+            if desc.is_empty() { None } else { Some(desc) }
         }
     };
 
@@ -965,7 +973,9 @@ fn build_update_request_from_options(
 
     let period_seconds = every.map(|p| parse_duration_enhanced(&p)).transpose()?;
     let grace_seconds = grace.map(|g| parse_duration_enhanced(&g)).transpose()?;
-    let max_runtime_seconds = max_runtime.map(|m| parse_duration_enhanced(&m)).transpose()?;
+    let max_runtime_seconds = max_runtime
+        .map(|m| parse_duration_enhanced(&m))
+        .transpose()?;
     let tags_vec = tags.map(|t| {
         t.split(',')
             .map(|s| s.trim().to_string())

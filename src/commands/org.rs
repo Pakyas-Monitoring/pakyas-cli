@@ -113,7 +113,10 @@ async fn switch(ctx: &Context, name_or_id: &str, verbose: bool) -> Result<()> {
         .ok_or_else(|| CliError::OrgNotFound(name_or_id.to_string()))?;
 
     if verbose {
-        eprintln!("[verbose] Found organization: {} ({})", org.organization.name, org.organization.id);
+        eprintln!(
+            "[verbose] Found organization: {} ({})",
+            org.organization.name, org.organization.id
+        );
     }
 
     // Update config
@@ -123,13 +126,18 @@ async fn switch(ctx: &Context, name_or_id: &str, verbose: bool) -> Result<()> {
     // Cache org timezone for dry-run/JSON output
     // IMPORTANT: Always update, even if org.timezone is None
     // This prevents leaking the previous org's timezone
-    config.active_org_timezone.clone_from(&org.organization.timezone);
+    config
+        .active_org_timezone
+        .clone_from(&org.organization.timezone);
     // Clear project when switching orgs (projects are org-specific)
     config.active_project_id = None;
     config.active_project_name = None;
     config.save()?;
 
-    print_success(&format!("Switched to organization: {}", org.organization.name));
+    print_success(&format!(
+        "Switched to organization: {}",
+        org.organization.name
+    ));
 
     Ok(())
 }

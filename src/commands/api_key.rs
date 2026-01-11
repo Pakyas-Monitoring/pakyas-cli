@@ -205,8 +205,8 @@ async fn create(
     _verbose: bool,
 ) -> Result<()> {
     let org_id = ctx.require_org()?;
-    let org_uuid =
-        Uuid::parse_str(org_id).map_err(|_| CliError::Other("Invalid organization ID".to_string()))?;
+    let org_uuid = Uuid::parse_str(org_id)
+        .map_err(|_| CliError::Other("Invalid organization ID".to_string()))?;
 
     // Validate scopes
     let validated_scopes: Vec<String> = if scopes.is_empty() {
@@ -225,7 +225,9 @@ async fn create(
     // Validate expires_in_days
     if let Some(days) = expires {
         if !(1..=365).contains(&days) {
-            return Err(CliError::Other("Expiration must be between 1 and 365 days".to_string()).into());
+            return Err(
+                CliError::Other("Expiration must be between 1 and 365 days".to_string()).into(),
+            );
         }
     }
 
@@ -254,8 +256,8 @@ async fn create(
 async fn revoke(ctx: &Context, id: &str, skip_confirm: bool, _verbose: bool) -> Result<()> {
     let _org_id = ctx.require_org()?; // Ensure org context
 
-    let key_uuid =
-        Uuid::parse_str(id).map_err(|_| CliError::Other("Invalid API key ID format".to_string()))?;
+    let key_uuid = Uuid::parse_str(id)
+        .map_err(|_| CliError::Other("Invalid API key ID format".to_string()))?;
 
     if !skip_confirm {
         let confirm = Confirm::new()

@@ -3,7 +3,7 @@ use clap::Parser;
 use pakyas_cli::cli::{Cli, Commands, OutputFormat};
 use pakyas_cli::commands;
 use pakyas_cli::config;
-use pakyas_cli::update_cache::{check_for_updates, UpdateCache};
+use pakyas_cli::update_cache::{UpdateCache, check_for_updates};
 use std::process::ExitCode;
 use tokio::task::JoinHandle;
 
@@ -36,9 +36,9 @@ async fn run() -> Result<ExitCode> {
     // Start update check early (non-blocking) for eligible commands
     let update_handle = if should_check_updates(&cli) {
         let api_url = ctx.api_url();
-        Some(tokio::spawn(async move {
-            perform_update_check(&api_url).await
-        }))
+        Some(tokio::spawn(
+            async move { perform_update_check(&api_url).await },
+        ))
     } else {
         None
     };
@@ -79,7 +79,10 @@ fn should_check_updates(cli: &Cli) -> bool {
     // Skip for hot-path commands and update (which does its own check)
     !matches!(
         cli.command,
-        Commands::Monitor(_) | Commands::Ping(_) | Commands::Completion { .. } | Commands::Update(_)
+        Commands::Monitor(_)
+            | Commands::Ping(_)
+            | Commands::Completion { .. }
+            | Commands::Update(_)
     )
 }
 

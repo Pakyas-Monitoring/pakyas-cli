@@ -9,11 +9,10 @@ fn main() {
 
     // Provide production defaults for open-source builds
     // Override via environment variables or .env file
-    let api_url = std::env::var("API_URL")
-        .unwrap_or_else(|_| "https://api.pakyas.com".to_string());
+    let api_url = std::env::var("API_URL").unwrap_or_else(|_| "https://api.pakyas.com".to_string());
 
-    let ping_url = std::env::var("PING_URL")
-        .unwrap_or_else(|_| "https://ping.pakyas.com".to_string());
+    let ping_url =
+        std::env::var("PING_URL").unwrap_or_else(|_| "https://ping.pakyas.com".to_string());
 
     // Pass to compiler as compile-time env vars
     println!("cargo:rustc-env=API_URL={}", api_url);

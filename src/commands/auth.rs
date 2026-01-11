@@ -1,7 +1,7 @@
 use crate::cli::LoginArgs;
 use crate::client::ApiClient;
 use crate::config::{Config, Context};
-use crate::credentials::{validate_api_key, Credentials};
+use crate::credentials::{Credentials, validate_api_key};
 use crate::error::CliError;
 use crate::output::{print_error, print_info, print_success};
 use anyhow::Result;
@@ -195,26 +195,21 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
 /// Interactive login with email and password.
 async fn login_interactive(ctx: &Context) -> Result<()> {
     // Prompt for email
-    let email: String = Input::new()
-        .with_prompt("Email")
-        .interact_text()?;
+    let email: String = Input::new().with_prompt("Email").interact_text()?;
 
     // Prompt for password (hidden input)
-    let password: String = Password::new()
-        .with_prompt("Password")
-        .interact()?;
+    let password: String = Password::new().with_prompt("Password").interact()?;
 
     // Create temporary client for auth (no API key needed for login)
     let client = reqwest::Client::new();
     let api_url = ctx.api_url();
     let login_url = format!("{}/api/v1/auth/login", api_url.trim_end_matches('/'));
 
-    let login_req = LoginRequest { email: email.clone(), password };
-    let response = client
-        .post(&login_url)
-        .json(&login_req)
-        .send()
-        .await?;
+    let login_req = LoginRequest {
+        email: email.clone(),
+        password,
+    };
+    let response = client.post(&login_url).json(&login_req).send().await?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -345,11 +340,7 @@ async fn login_with_browser(ctx: &Context) -> Result<()> {
         cli_version: Some(env!("CARGO_PKG_VERSION").to_string()),
     };
 
-    let init_response = client
-        .post(&init_url)
-        .json(&init_request)
-        .send()
-        .await?;
+    let init_response = client.post(&init_url).json(&init_request).send().await?;
 
     if !init_response.status().is_success() {
         return Err(CliError::api("Failed to initialize authentication").into());
@@ -447,7 +438,9 @@ async fn login_with_browser(ctx: &Context) -> Result<()> {
                     // Fetch and set the first project for this org
                     let api_client = ApiClient::with_api_key(ctx, api_key)?;
                     let projects_url = format!("/api/v1/projects?org_id={}", org.id);
-                    if let Ok(projects) = api_client.get::<Vec<ProjectResponse>>(&projects_url).await {
+                    if let Ok(projects) =
+                        api_client.get::<Vec<ProjectResponse>>(&projects_url).await
+                    {
                         if let Some(first_project) = projects.first() {
                             config.active_project_id = Some(first_project.id.to_string());
                             config.active_project_name = Some(first_project.name.clone());

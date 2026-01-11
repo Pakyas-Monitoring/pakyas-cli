@@ -59,7 +59,9 @@ pub async fn handle(ctx: &Context, command: ProjectCommands, verbose: bool) -> R
 
     match command {
         ProjectCommands::List => list(ctx, verbose).await,
-        ProjectCommands::Create { name, description } => create(ctx, name, description, verbose).await,
+        ProjectCommands::Create { name, description } => {
+            create(ctx, name, description, verbose).await
+        }
         ProjectCommands::Switch { name } => switch(ctx, name, verbose).await,
     }
 }
@@ -102,15 +104,18 @@ async fn list(ctx: &Context, verbose: bool) -> Result<()> {
 }
 
 /// Create a new project.
-async fn create(ctx: &Context, name: Option<String>, description: Option<String>, verbose: bool) -> Result<()> {
+async fn create(
+    ctx: &Context,
+    name: Option<String>,
+    description: Option<String>,
+    verbose: bool,
+) -> Result<()> {
     let org_id = ctx.require_org()?;
 
     // Get name interactively if not provided
     let name = match name {
         Some(n) => n,
-        None => Input::new()
-            .with_prompt("Project name")
-            .interact_text()?,
+        None => Input::new().with_prompt("Project name").interact_text()?,
     };
 
     // Get description interactively if not provided (optional)
@@ -121,11 +126,7 @@ async fn create(ctx: &Context, name: Option<String>, description: Option<String>
                 .with_prompt("Description (optional)")
                 .allow_empty(true)
                 .interact_text()?;
-            if desc.is_empty() {
-                None
-            } else {
-                Some(desc)
-            }
+            if desc.is_empty() { None } else { Some(desc) }
         }
     };
 
@@ -187,9 +188,7 @@ async fn switch(ctx: &Context, name_parts: Vec<String>, verbose: bool) -> Result
     // Find project by name or ID
     let project = projects
         .iter()
-        .find(|p| {
-            p.name.eq_ignore_ascii_case(name_or_id) || p.id.to_string() == *name_or_id
-        })
+        .find(|p| p.name.eq_ignore_ascii_case(name_or_id) || p.id.to_string() == *name_or_id)
         .ok_or_else(|| CliError::ProjectNotFound(name_or_id.to_string()))?;
 
     if verbose {

@@ -2,7 +2,7 @@ use crate::cli::PingArgs;
 use crate::commands::check::resolve_public_id;
 use crate::config::Context;
 use crate::external_monitors::ExternalMonitorConfig;
-use crate::external_ping::{dispatch_external_pings, EventType, PingEvent};
+use crate::external_ping::{EventType, PingEvent, dispatch_external_pings};
 use crate::output::{print_error, print_success};
 use crate::ua::user_agent;
 use anyhow::Result;
