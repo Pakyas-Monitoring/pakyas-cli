@@ -10,6 +10,7 @@ cargo build --release          # Release build
 cargo test                     # Run all tests
 cargo test <test_name>         # Run a single test
 cargo clippy                   # Run linter
+cargo tarpaulin --all-features # Run coverage (Linux only)
 cargo install --path .         # Install locally
 ```
 
@@ -55,3 +56,40 @@ Organization > Project > Check (strict containment, CLI reflects this in command
 - `PAKYAS_ORG` / `PAKYAS_PROJECT` - Override active org/project
 - `API_URL` / `PING_URL` - Override API endpoints
 - `PAKYAS_FORMAT` - Output format (table/json)
+
+## Commit Convention
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for changelog generation.
+
+```
+<type>[optional scope]: <description>
+```
+
+**Types:**
+- `feat` - New feature
+- `fix` - Bug fix
+- `docs` - Documentation only
+- `perf` - Performance improvement
+- `refactor` - Code change that neither fixes a bug nor adds a feature
+- `test` - Adding or updating tests
+- `chore` - Maintenance tasks, CI changes
+
+**Examples:**
+```bash
+feat(ping): add --timeout flag
+fix(auth): handle expired tokens gracefully
+docs: update installation instructions
+perf(cache): optimize slug lookup
+```
+
+**Breaking changes:** Add `!` after the type:
+```bash
+feat!: change default output format to JSON
+```
+
+## Release Process
+
+1. Update version in `Cargo.toml`
+2. Commit: `chore(release): prepare v0.x.x`
+3. Tag and push: `git tag v0.x.x && git push --tags`
+4. GitHub Actions builds and creates the release with changelog
