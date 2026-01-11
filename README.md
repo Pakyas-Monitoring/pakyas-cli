@@ -312,6 +312,10 @@ cargo test
 
 # Run clippy
 cargo clippy
+
+# Run coverage (Linux only, or use Docker on macOS)
+cargo install cargo-tarpaulin
+cargo tarpaulin --all-features
 ```
 
 ### Architecture
