@@ -254,17 +254,28 @@ async fn switch(ctx: &Context, name_or_id: &str, no_prompt: bool, verbose: bool)
 
     // 5. Fetch and set first project for this org (network call, no lock)
     let project_name = {
-        let client = ApiClient::new(ctx)?;
-        let projects_url = format!("/api/v1/projects?org_id={}", target_org_id);
-        if let Ok(projects) = client.get::<Vec<ProjectResponse>>(&projects_url).await {
-            if let Some(first_project) = projects.first() {
-                // Re-acquire lock to update config
-                let _lock = GlobalLock::acquire()?;
-                let mut config = Config::load()?;
-                config.active_project_id = Some(first_project.id.to_string());
-                config.active_project_name = Some(first_project.name.clone());
-                config.save()?;
-                Some(first_project.name.clone())
+        // Load credentials for the NEW org (ctx still has old org)
+        let creds = CredentialsV2::load()?;
+        let api_key = creds
+            .get_for_org(&target_org_id)
+            .map(|c| c.api_key.clone())
+            .or_else(|| creds.legacy_key().map(|s| s.to_string()));
+
+        if let Some(api_key) = api_key {
+            let client = ApiClient::with_base_url(ctx.api_url(), Some(api_key))?;
+            let projects_url = format!("/api/v1/projects?org_id={}", target_org_id);
+            if let Ok(projects) = client.get::<Vec<ProjectResponse>>(&projects_url).await {
+                if let Some(first_project) = projects.first() {
+                    // Re-acquire lock to update config
+                    let _lock = GlobalLock::acquire()?;
+                    let mut config = Config::load()?;
+                    config.active_project_id = Some(first_project.id.to_string());
+                    config.active_project_name = Some(first_project.name.clone());
+                    config.save()?;
+                    Some(first_project.name.clone())
+                } else {
+                    None
+                }
             } else {
                 None
             }
