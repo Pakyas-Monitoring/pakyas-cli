@@ -9,7 +9,7 @@
 use crate::cli::AuthKeyCommands;
 use crate::client::ApiClient;
 use crate::config::Context;
-use crate::credentials::{validate_api_key, CredentialsV2, OrgCredential};
+use crate::credentials::{CredentialsV2, OrgCredential, validate_api_key};
 use crate::error::CliError;
 use crate::lock::GlobalLock;
 use crate::output::{print_error, print_info, print_success, print_warning};
@@ -74,7 +74,9 @@ async fn list(verbose: bool) -> Result<()> {
         println!("  Legacy Key (not associated with any org):");
         println!("    Key: {}", key_preview);
         println!();
-        print_warning("Run 'pakyas org switch <org>' to migrate the legacy key, or 'pakyas auth key rm --legacy' to remove it.");
+        print_warning(
+            "Run 'pakyas org switch <org>' to migrate the legacy key, or 'pakyas auth key rm --legacy' to remove it.",
+        );
     }
 
     Ok(())
@@ -86,9 +88,7 @@ async fn set(ctx: &Context, org_id: &str, key: Option<&str>, verbose: bool) -> R
     let api_key = match key {
         Some(k) => k.to_string(),
         None => {
-            let key: String = Password::new()
-                .with_prompt("Paste API key")
-                .interact()?;
+            let key: String = Password::new().with_prompt("Paste API key").interact()?;
             key
         }
     };
@@ -194,11 +194,18 @@ async fn verify(ctx: &Context, org_id: Option<&str>, verbose: bool) -> Result<()
 
             print_success("Key is valid!");
             println!();
-            println!("  Organization: {} ({})", me_response.org_name.as_deref().unwrap_or("unknown"), me_response.org_id);
+            println!(
+                "  Organization: {} ({})",
+                me_response.org_name.as_deref().unwrap_or("unknown"),
+                me_response.org_id
+            );
             if let Some(email) = me_response.email {
                 println!("  User:         {}", email);
             }
-            println!("  Last verified: {}", Utc::now().format("%Y-%m-%d %H:%M:%S UTC"));
+            println!(
+                "  Last verified: {}",
+                Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+            );
         }
         Err(e) => {
             print_error(&format!("Key validation failed: {}", e));

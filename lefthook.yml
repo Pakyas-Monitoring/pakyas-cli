@@ -2,9 +2,12 @@ pre-commit:
   parallel: false
   commands:
     fmt:
-      run: cargo fmt --check
+      glob: "*.rs"
+      files: git diff --name-only --cached
+      run: cargo fmt -- --check {files}
       fail_text: "Formatting issues found. Run 'cargo fmt' to fix."
     clippy:
+      glob: "*.rs"
       run: cargo clippy -- -D warnings
       fail_text: "Clippy linting failed. Fix the warnings above."
     test:

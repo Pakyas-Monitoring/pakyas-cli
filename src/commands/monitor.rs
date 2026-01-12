@@ -121,7 +121,8 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
             ping_url, public_id, modifier
         );
     }
-    let pakyas_result = send_pakyas_completion(&ping_url, public_id, &result, &run_id, duration_ms).await;
+    let pakyas_result =
+        send_pakyas_completion(&ping_url, public_id, &result, &run_id, duration_ms).await;
 
     if verbose {
         match &pakyas_result {

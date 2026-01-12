@@ -79,11 +79,7 @@ impl OrgCredential {
     }
 
     /// Create a new org credential with all fields.
-    pub fn with_details(
-        api_key: String,
-        key_id: Option<String>,
-        label: Option<String>,
-    ) -> Self {
+    pub fn with_details(api_key: String, key_id: Option<String>, label: Option<String>) -> Self {
         Self {
             api_key,
             key_id,
@@ -248,7 +244,8 @@ impl CredentialsV2 {
     pub fn promote_legacy_key_to_org(&mut self, org_id: &str) -> bool {
         if let Some(legacy_key) = self.legacy_api_key.take() {
             if !self.orgs.contains_key(org_id) {
-                self.orgs.insert(org_id.to_string(), OrgCredential::new(legacy_key));
+                self.orgs
+                    .insert(org_id.to_string(), OrgCredential::new(legacy_key));
                 return true;
             } else {
                 // Put it back - org already has a key
@@ -658,7 +655,10 @@ mod tests {
         let path = temp_dir.path().join("credentials.json");
 
         let mut creds = CredentialsV2::default();
-        creds.set_for_org("org_test123", OrgCredential::new("pk_test_1234567890123456".to_string()));
+        creds.set_for_org(
+            "org_test123",
+            OrgCredential::new("pk_test_1234567890123456".to_string()),
+        );
         creds.legacy_api_key = Some("pk_legacy_key_1234567890".to_string());
 
         creds.save_to_path(&path).unwrap();
@@ -730,7 +730,10 @@ mod tests {
         assert!(creds.list_orgs_with_keys().is_empty());
 
         // Add a key
-        creds.set_for_org("org_abc", OrgCredential::new("pk_abc_key_12345678901".to_string()));
+        creds.set_for_org(
+            "org_abc",
+            OrgCredential::new("pk_abc_key_12345678901".to_string()),
+        );
         assert!(creds.has_key_for_org("org_abc"));
         assert_eq!(
             creds.get_for_org("org_abc").unwrap().api_key,
@@ -739,7 +742,10 @@ mod tests {
         assert_eq!(creds.list_orgs_with_keys(), vec!["org_abc"]);
 
         // Add another
-        creds.set_for_org("org_xyz", OrgCredential::new("pk_xyz_key_12345678901".to_string()));
+        creds.set_for_org(
+            "org_xyz",
+            OrgCredential::new("pk_xyz_key_12345678901".to_string()),
+        );
         assert_eq!(creds.list_orgs_with_keys().len(), 2);
 
         // Remove one
@@ -772,7 +778,10 @@ mod tests {
             legacy_api_key: Some("pk_legacy_1234567890123456".to_string()),
             ..Default::default()
         };
-        creds.set_for_org("org_existing", OrgCredential::new("pk_existing_key_1234567".to_string()));
+        creds.set_for_org(
+            "org_existing",
+            OrgCredential::new("pk_existing_key_1234567".to_string()),
+        );
 
         // Should NOT promote if org already has a key
         assert!(!creds.promote_legacy_key_to_org("org_existing"));
@@ -797,7 +806,10 @@ mod tests {
 
         // With org key (no legacy)
         creds.legacy_api_key = None;
-        creds.set_for_org("org_test", OrgCredential::new("pk_org_key_1234567890".to_string()));
+        creds.set_for_org(
+            "org_test",
+            OrgCredential::new("pk_org_key_1234567890".to_string()),
+        );
         assert!(creds.is_authenticated());
     }
 
@@ -812,7 +824,10 @@ mod tests {
 
         // Write a V2 file with different keys
         let mut file_creds = CredentialsV2::default();
-        file_creds.set_for_org("org_file", OrgCredential::new("pk_file_key_1234567890".to_string()));
+        file_creds.set_for_org(
+            "org_file",
+            OrgCredential::new("pk_file_key_1234567890".to_string()),
+        );
         file_creds.save_to_path(&path).unwrap();
 
         // Load should return env var as legacy key

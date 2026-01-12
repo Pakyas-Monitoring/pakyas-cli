@@ -43,7 +43,9 @@ impl GlobalLock {
             .open(&lock_path)
             .map_err(CliError::ConfigWrite)?;
 
-        lock_file.lock_exclusive().map_err(|_| CliError::LockFailed)?;
+        lock_file
+            .lock_exclusive()
+            .map_err(|_| CliError::LockFailed)?;
 
         Ok(Self {
             _lock_file: lock_file,
@@ -65,7 +67,9 @@ impl GlobalLock {
             .open(lock_path)
             .map_err(CliError::ConfigWrite)?;
 
-        lock_file.lock_exclusive().map_err(|_| CliError::LockFailed)?;
+        lock_file
+            .lock_exclusive()
+            .map_err(|_| CliError::LockFailed)?;
 
         Ok(Self {
             _lock_file: lock_file,
@@ -85,12 +89,12 @@ impl GlobalLock {
 /// # Errors
 /// Returns `CliError::ConfigWrite` if the write fails.
 pub fn atomic_write(path: &Path, content: &str) -> Result<(), CliError> {
-    let dir = path
-        .parent()
-        .ok_or_else(|| CliError::ConfigWrite(std::io::Error::new(
+    let dir = path.parent().ok_or_else(|| {
+        CliError::ConfigWrite(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
             "Path has no parent directory",
-        )))?;
+        ))
+    })?;
 
     // Ensure parent directory exists
     std::fs::create_dir_all(dir).map_err(CliError::ConfigWrite)?;

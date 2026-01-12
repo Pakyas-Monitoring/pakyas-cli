@@ -1,7 +1,7 @@
 use crate::cli::LoginArgs;
 use crate::client::ApiClient;
 use crate::config::{Config, Context};
-use crate::credentials::{validate_api_key, Credentials, CredentialsV2, OrgCredential};
+use crate::credentials::{Credentials, CredentialsV2, OrgCredential, validate_api_key};
 use crate::error::CliError;
 use crate::output::{print_error, print_info, print_success, print_warning};
 use anyhow::Result;
@@ -428,7 +428,11 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
             .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(String::from))
             .unwrap_or_else(|| format!("Server returned {}", status));
 
-        return Err(CliError::api(format!("Failed to initialize authentication: {}", error_msg)).into());
+        return Err(CliError::api(format!(
+            "Failed to initialize authentication: {}",
+            error_msg
+        ))
+        .into());
     }
 
     let init_data: InitCliAuthResponse = init_response.json().await?;
@@ -710,7 +714,10 @@ pub async fn auth_status(ctx: &Context, verbose: bool) -> Result<()> {
                 println!("  Label: {}", label);
             }
             if let Some(verified) = cred.last_verified {
-                println!("  Last verified: {}", verified.format("%Y-%m-%d %H:%M:%S UTC"));
+                println!(
+                    "  Last verified: {}",
+                    verified.format("%Y-%m-%d %H:%M:%S UTC")
+                );
             }
         } else if !env_key_set {
             print_warning(&format!("No stored key for active org '{}'", org_id));
@@ -755,7 +762,9 @@ pub async fn auth_status(ctx: &Context, verbose: bool) -> Result<()> {
         if let Some(legacy_key) = creds.legacy_key() {
             println!("  Key: {}", format_key_preview(legacy_key));
         }
-        println!("  Run 'pakyas org switch <org>' to migrate it, or 'pakyas auth key rm --legacy' to remove.");
+        println!(
+            "  Run 'pakyas org switch <org>' to migrate it, or 'pakyas auth key rm --legacy' to remove."
+        );
     }
 
     Ok(())

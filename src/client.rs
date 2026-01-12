@@ -3,8 +3,8 @@ use crate::credentials::CredentialsV2;
 use crate::error::CliError;
 use anyhow::Result;
 use reqwest::{Client, Response, StatusCode};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 
 const TIMEOUT_SECS: u64 = 30;
@@ -66,7 +66,10 @@ impl ApiClient {
     /// 2. Stored key for active org
     /// 3. Legacy key
     /// 4. Error
-    fn select_key(ctx: &Context, active_org_id: Option<&str>) -> Result<(String, AuthSource), CliError> {
+    fn select_key(
+        ctx: &Context,
+        active_org_id: Option<&str>,
+    ) -> Result<(String, AuthSource), CliError> {
         // 1. Check env var (unless ignore_env)
         if !ctx.ignore_env() {
             if let Ok(key) = std::env::var("PAKYAS_API_KEY") {
