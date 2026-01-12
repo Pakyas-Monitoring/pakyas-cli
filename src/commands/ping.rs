@@ -36,8 +36,8 @@ pub async fn execute(ctx: &Context, args: PingArgs, verbose: bool) -> Result<()>
         eprintln!("[verbose] Sending ping to: {}", url);
     }
 
-    // Send the ping (with optional run_id for START/END pairing)
-    send_ping(&url, args.run.as_deref()).await?;
+    // Send the ping (with optional run_id for START/END pairing and duration for accuracy)
+    send_ping(&url, args.run.as_deref(), args.duration_ms).await?;
 
     // Print appropriate success message
     print_ping_success(&args);
@@ -149,12 +149,17 @@ fn build_ping_url(ctx: &Context, public_id: Uuid, modifier: &str) -> String {
 }
 
 /// Send a ping to the given URL (GET, no body)
-async fn send_ping(url: &str, run_id: Option<&str>) -> Result<()> {
-    send_ping_inner(url, None, run_id).await
+async fn send_ping(url: &str, run_id: Option<&str>, duration_ms: Option<u64>) -> Result<()> {
+    send_ping_inner(url, None, run_id, duration_ms).await
 }
 
 /// Send a ping with optional body (POST if body present, GET otherwise)
-async fn send_ping_inner(url: &str, body: Option<&str>, run_id: Option<&str>) -> Result<()> {
+async fn send_ping_inner(
+    url: &str,
+    body: Option<&str>,
+    run_id: Option<&str>,
+    duration_ms: Option<u64>,
+) -> Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(PING_TIMEOUT_SECS))
         .build()?;
@@ -172,6 +177,11 @@ async fn send_ping_inner(url: &str, body: Option<&str>, run_id: Option<&str>) ->
                 request = request.header("X-Pakyas-Run", rid);
             }
 
+            // Add duration header for accurate timing
+            if let Some(duration) = duration_ms {
+                request = request.header("X-Pakyas-Duration", duration.to_string());
+            }
+
             request.send().await?
         }
         None => {
@@ -182,6 +192,11 @@ async fn send_ping_inner(url: &str, body: Option<&str>, run_id: Option<&str>) ->
             // Add run_id header for START/END pairing
             if let Some(rid) = run_id {
                 request = request.header("X-Pakyas-Run", rid);
+            }
+
+            // Add duration header for accurate timing
+            if let Some(duration) = duration_ms {
+                request = request.header("X-Pakyas-Duration", duration.to_string());
             }
 
             request.send().await?
@@ -240,8 +255,8 @@ pub async fn send_ping_direct_with_body(
     );
 
     // Fire-and-forget: don't fail the wrapper command if ping fails
-    // Note: No run_id here - monitor command uses its own internal functions with run_id
-    match send_ping_inner(&url, body, None).await {
+    // Note: No run_id or duration here - monitor command uses its own internal functions
+    match send_ping_inner(&url, body, None, None).await {
         Ok(_) => Ok(()),
         Err(e) => {
             print_error(&format!("Warning: ping failed: {}", e));

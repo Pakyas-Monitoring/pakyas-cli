@@ -314,6 +314,11 @@ pub struct PingArgs {
     #[arg(long)]
     pub run: Option<String>,
 
+    /// Duration in milliseconds (for scripted pings with accurate timing)
+    /// Only used with completion pings (not --start)
+    #[arg(long, conflicts_with = "start")]
+    pub duration_ms: Option<u64>,
+
     /// Disable external monitors (healthchecks.io, cronitor, webhooks)
     #[arg(long, env = "PAKYAS_NO_EXTERNAL")]
     pub no_external: bool,

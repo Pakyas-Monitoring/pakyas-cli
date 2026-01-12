@@ -69,14 +69,14 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
         eprintln!("[verbose] Migration mode: {}", migration_mode);
     }
 
-    // Send start ping to pakyas (with run_id for pairing)
+    // Send start ping to pakyas (with run_id for pairing, no duration for start)
     if verbose {
         eprintln!(
             "[verbose] Sending start ping to pakyas: {}/{}/start",
             ping_url, public_id
         );
     }
-    send_ping_direct_inner(&ping_url, public_id, "/start", Some(&run_id)).await?;
+    send_ping_direct_inner(&ping_url, public_id, "/start", Some(&run_id), None).await?;
     if verbose {
         eprintln!("[verbose] Pakyas start ping succeeded");
     }
@@ -121,7 +121,7 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
             ping_url, public_id, modifier
         );
     }
-    let pakyas_result = send_pakyas_completion(&ping_url, public_id, &result, &run_id).await;
+    let pakyas_result = send_pakyas_completion(&ping_url, public_id, &result, &run_id, duration_ms).await;
 
     if verbose {
         match &pakyas_result {
@@ -255,12 +255,13 @@ async fn send_pakyas_completion(
     public_id: uuid::Uuid,
     result: &CommandResult,
     run_id: &str,
+    duration_ms: u64,
 ) -> Result<(), anyhow::Error> {
     if result.exit_code == 0 {
-        // Success ping (GET, no body)
-        send_ping_direct_inner(ping_url, public_id, "", Some(run_id)).await
+        // Success ping (GET, no body) with duration
+        send_ping_direct_inner(ping_url, public_id, "", Some(run_id), Some(duration_ms)).await
     } else {
-        // Fail ping with error body (POST)
+        // Fail ping with error body (POST) with duration
         let modifier = format!("/{}", result.exit_code);
         let error_body = build_error_body(result);
         send_ping_direct_with_body_inner(
@@ -269,6 +270,7 @@ async fn send_pakyas_completion(
             &modifier,
             Some(&error_body),
             Some(run_id),
+            Some(duration_ms),
         )
         .await
     }
@@ -280,6 +282,7 @@ async fn send_ping_direct_inner(
     public_id: uuid::Uuid,
     modifier: &str,
     run_id: Option<&str>,
+    duration_ms: Option<u64>,
 ) -> Result<(), anyhow::Error> {
     let url = format!(
         "{}/{}{}",
@@ -301,6 +304,11 @@ async fn send_ping_direct_inner(
         request = request.header("X-Pakyas-Run", rid);
     }
 
+    // Add duration header for accurate timing
+    if let Some(duration) = duration_ms {
+        request = request.header("X-Pakyas-Duration", duration.to_string());
+    }
+
     let response = request.send().await?;
 
     if response.status().is_success() {
@@ -319,6 +327,7 @@ async fn send_ping_direct_with_body_inner(
     modifier: &str,
     body: Option<&str>,
     run_id: Option<&str>,
+    duration_ms: Option<u64>,
 ) -> Result<(), anyhow::Error> {
     let url = format!(
         "{}/{}{}",
@@ -344,6 +353,11 @@ async fn send_ping_direct_with_body_inner(
                 request = request.header("X-Pakyas-Run", rid);
             }
 
+            // Add duration header for accurate timing
+            if let Some(duration) = duration_ms {
+                request = request.header("X-Pakyas-Duration", duration.to_string());
+            }
+
             request.send().await?
         }
         None => {
@@ -354,6 +368,11 @@ async fn send_ping_direct_with_body_inner(
             // Add run_id header for START/END pairing
             if let Some(rid) = run_id {
                 request = request.header("X-Pakyas-Run", rid);
+            }
+
+            // Add duration header for accurate timing
+            if let Some(duration) = duration_ms {
+                request = request.header("X-Pakyas-Duration", duration.to_string());
             }
 
             request.send().await?
