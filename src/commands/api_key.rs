@@ -66,6 +66,10 @@ struct ApiKeyResponse {
     key_prefix: String,
     scopes: Vec<ApiKeyScope>,
     #[allow(dead_code)]
+    project_access: String,
+    #[allow(dead_code)]
+    allowed_project_ids: Vec<Uuid>,
+    #[allow(dead_code)]
     expires_at: Option<DateTime<Utc>>,
     last_used_at: Option<DateTime<Utc>>,
     created_at: DateTime<Utc>,
@@ -148,7 +152,7 @@ pub async fn handle(ctx: &Context, command: ApiKeyCommands, verbose: bool) -> Re
 /// List all API keys for the active organization
 async fn list(ctx: &Context, verbose: bool) -> Result<()> {
     let org_id = ctx.require_org()?;
-    let client = ApiClient::new(ctx)?;
+    let client = ApiClient::new(ctx)?.with_verbose(verbose);
 
     let url = format!("/api/v1/api-keys?org_id={}", org_id);
 
@@ -202,7 +206,7 @@ async fn create(
     name: String,
     scopes: Vec<String>,
     expires: Option<i64>,
-    _verbose: bool,
+    verbose: bool,
 ) -> Result<()> {
     let org_id = ctx.require_org()?;
     let org_uuid = Uuid::parse_str(org_id)
@@ -231,7 +235,7 @@ async fn create(
         }
     }
 
-    let client = ApiClient::new(ctx)?;
+    let client = ApiClient::new(ctx)?.with_verbose(verbose);
     let req = CreateApiKeyRequest {
         org_id: org_uuid,
         name: name.clone(),
@@ -253,7 +257,7 @@ async fn create(
 }
 
 /// Revoke an API key
-async fn revoke(ctx: &Context, id: &str, skip_confirm: bool, _verbose: bool) -> Result<()> {
+async fn revoke(ctx: &Context, id: &str, skip_confirm: bool, verbose: bool) -> Result<()> {
     let _org_id = ctx.require_org()?; // Ensure org context
 
     let key_uuid = Uuid::parse_str(id)
@@ -271,7 +275,7 @@ async fn revoke(ctx: &Context, id: &str, skip_confirm: bool, _verbose: bool) -> 
         }
     }
 
-    let client = ApiClient::new(ctx)?;
+    let client = ApiClient::new(ctx)?.with_verbose(verbose);
     let spinner = create_spinner("Revoking API key...");
     let url = format!("/api/v1/api-keys/{}", key_uuid);
     client.delete(&url).await?;

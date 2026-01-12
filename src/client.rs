@@ -29,6 +29,8 @@ pub struct ApiClient {
     /// Where the API key came from (for debugging)
     #[allow(dead_code)]
     auth_source: Option<AuthSource>,
+    /// Enable verbose output for debugging
+    verbose: bool,
 }
 
 impl ApiClient {
@@ -56,6 +58,7 @@ impl ApiClient {
             api_key: Some(api_key),
             org_id: active_org_id,
             auth_source: Some(auth_source),
+            verbose: false,
         })
     }
 
@@ -143,6 +146,7 @@ impl ApiClient {
             api_key: Some(api_key),
             org_id,
             auth_source: None,
+            verbose: false,
         })
     }
 
@@ -158,7 +162,14 @@ impl ApiClient {
             api_key,
             org_id: None,
             auth_source: None,
+            verbose: false,
         })
+    }
+
+    /// Enable verbose output for debugging
+    pub fn with_verbose(mut self, verbose: bool) -> Self {
+        self.verbose = verbose;
+        self
     }
 
     fn require_auth(&self) -> Result<&str, CliError> {
@@ -190,7 +201,7 @@ impl ApiClient {
 
         let response = request.send().await?;
 
-        Self::handle_response(response).await
+        self.handle_response(response).await
     }
 
     pub async fn post<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
@@ -202,7 +213,7 @@ impl ApiClient {
 
         let response = request.send().await?;
 
-        Self::handle_response(response).await
+        self.handle_response(response).await
     }
 
     pub async fn post_no_body<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
@@ -214,7 +225,7 @@ impl ApiClient {
 
         let response = request.send().await?;
 
-        Self::handle_response(response).await
+        self.handle_response(response).await
     }
 
     pub async fn put<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
@@ -226,7 +237,7 @@ impl ApiClient {
 
         let response = request.send().await?;
 
-        Self::handle_response(response).await
+        self.handle_response(response).await
     }
 
     /// PUT request that expects no response body (204 No Content)
@@ -272,14 +283,22 @@ impl ApiClient {
 
         let response = self.client.post(&url).json(body).send().await?;
 
-        Self::handle_response(response).await
+        self.handle_response(response).await
     }
 
-    async fn handle_response<T: DeserializeOwned>(response: Response) -> Result<T> {
+    async fn handle_response<T: DeserializeOwned>(&self, response: Response) -> Result<T> {
         let status = response.status();
         if status.is_success() {
-            let data = response.json::<T>().await?;
-            Ok(data)
+            let text = response.text().await?;
+            if self.verbose {
+                eprintln!("[verbose] Response body: {}", text);
+            }
+            serde_json::from_str(&text).map_err(|e| {
+                if self.verbose {
+                    eprintln!("[verbose] Deserialization error: {}", e);
+                }
+                anyhow::anyhow!("error decoding response body: {}", e)
+            })
         } else {
             Err(Self::handle_error(response).await.into())
         }
