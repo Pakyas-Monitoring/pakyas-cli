@@ -632,9 +632,14 @@ You have this in your crontab:
    pakyas check create --name "Hourly Sync" --slug hourly-sync --period 3600 --grace 300
    ```
 
-2. **Update your crontab**
+2. **Update your crontab** (using slug with API key)
    ```cron
-   0 * * * * pakyas monitor hourly-sync -- /opt/scripts/sync.sh
+   0 * * * * PAKYAS_API_KEY=pk_live_xxx pakyas monitor hourly-sync -- /opt/scripts/sync.sh
+   ```
+
+   **Or using check ID (no API key required):**
+   ```cron
+   0 * * * * PAKYAS_PUBLIC_ID=550e8400-... pakyas monitor --public_id "$PAKYAS_PUBLIC_ID" -- /opt/scripts/sync.sh
    ```
 
 3. **Test manually**
@@ -654,18 +659,26 @@ You have this in your crontab:
    pakyas check create --name "Nightly Build" --slug nightly-build --period 86400 --grace 3600
    ```
 
-2. **Add API key to CI secrets**
-   - GitHub: Settings > Secrets > New repository secret > `PAKYAS_API_KEY`
-   - GitLab: Settings > CI/CD > Variables > Add variable > `PAKYAS_API_KEY`
-   - Jenkins: Credentials > Add > Secret text > `pakyas-api-key`
+2. **Add API key or check ID to CI secrets**
+   - GitHub: Settings > Secrets > New repository secret > `PAKYAS_API_KEY` or `PAKYAS_PUBLIC_ID`
+   - GitLab: Settings > CI/CD > Variables > Add variable
+   - Jenkins: Credentials > Add > Secret text
 
-3. **Update workflow file**
+3. **Update workflow file** (using API key with slug)
    ```yaml
    - name: Run Build
      env:
        PAKYAS_API_KEY: ${{ secrets.PAKYAS_API_KEY }}
        PAKYAS_PROJECT: production
      run: pakyas monitor nightly-build -- make build
+   ```
+
+   **Or using check ID (no API key required):**
+   ```yaml
+   - name: Run Build
+     env:
+       PAKYAS_PUBLIC_ID: ${{ secrets.PAKYAS_PUBLIC_ID }}
+     run: pakyas monitor --public_id "$PAKYAS_PUBLIC_ID" -- make build
    ```
 
 4. **Trigger a test run** and verify in dashboard

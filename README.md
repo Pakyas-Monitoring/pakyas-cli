@@ -180,6 +180,7 @@ color = true
 | Variable | Description |
 |----------|-------------|
 | `PAKYAS_API_KEY` | API key (overrides stored credentials) |
+| `PAKYAS_PUBLIC_ID` | Check UUID for `--public_id` flag (no auth required) |
 | `PAKYAS_ORG` | Override active organization |
 | `PAKYAS_PROJECT` | Override active project |
 | `API_URL` | Override API URL |
@@ -206,6 +207,7 @@ export PAKYAS_PROJECT=production
 
 ### GitHub Actions Example
 
+**Using API key (with slug):**
 ```yaml
 name: Backup Job
 on:
@@ -231,8 +233,17 @@ jobs:
         run: pakyas monitor daily-backup -- ./scripts/backup.sh
 ```
 
+**Using check ID (no API key required):**
+```yaml
+- name: Run Backup with Monitoring
+  env:
+    PAKYAS_PUBLIC_ID: ${{ secrets.PAKYAS_PUBLIC_ID }}
+  run: pakyas monitor --public_id "$PAKYAS_PUBLIC_ID" -- ./scripts/backup.sh
+```
+
 ### Crontab Examples
 
+**Using API key (requires slug resolution):**
 ```cron
 # Monitor a backup script
 0 2 * * * PAKYAS_API_KEY=pk_live_xxx pakyas monitor daily-backup -- /opt/scripts/backup.sh
@@ -242,6 +253,15 @@ jobs:
 
 # Simple ping after a job completes
 30 3 * * * /opt/scripts/cleanup.sh && PAKYAS_API_KEY=pk_live_xxx pakyas ping cleanup-job
+```
+
+**Using check ID (no authentication required):**
+```cron
+# Monitor using check's public UUID (get from dashboard)
+0 2 * * * PAKYAS_PUBLIC_ID=550e8400-e29b-41d4-a716-446655440000 pakyas monitor --public_id "$PAKYAS_PUBLIC_ID" -- /opt/scripts/backup.sh
+
+# Or inline without environment variable
+0 * * * * pakyas ping --public_id 550e8400-e29b-41d4-a716-446655440000
 ```
 
 ## Shell Completions

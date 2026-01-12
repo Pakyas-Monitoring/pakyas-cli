@@ -32,9 +32,10 @@ struct CommandResult {
 /// Execute the monitor command (wrap a command with start/success/fail pings)
 ///
 /// Usage: pakyas monitor <SLUG> -- <COMMAND> [ARGS...]
+///        pakyas monitor --id <UUID> -- <COMMAND> [ARGS...]
 ///
 /// Flow:
-/// 1. Resolve slug to public_id
+/// 1. Resolve slug to public_id (or use --id directly)
 /// 2. Send /start ping to pakyas + external monitors (fire-and-forget)
 /// 3. Execute command (capture stdout/stderr silently)
 /// 4. Send completion ping to pakyas
@@ -42,29 +43,49 @@ struct CommandResult {
 /// 6. Send completion ping to external monitors (fire-and-forget)
 /// 7. Exit with the same code as the wrapped command (or 3 for monitoring failure)
 pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<ExitCode> {
-    let project_id = ctx.require_project()?;
-
     // Validate command
     if args.command.is_empty() {
         return Err(CliError::Other("No command specified".to_string()).into());
     }
 
-    // Resolve slug to public_id
-    let public_id = resolve_public_id(ctx, project_id, &args.slug).await?;
+    // Determine public_id: either from --public_id directly or via slug resolution
+    let public_id = if let Some(id) = args.public_id {
+        // Direct mode: use provided UUID, no auth needed
+        if verbose {
+            eprintln!("[verbose] Using direct public_id: {}", id);
+        }
+        id
+    } else {
+        // Slug mode: requires auth and project context
+        let slug = args
+            .slug
+            .as_ref()
+            .expect("slug required when --id not provided");
+        let project_id = ctx.require_project()?;
+        if verbose {
+            eprintln!(
+                "[verbose] Resolving slug '{}' in project {}",
+                slug, project_id
+            );
+        }
+        resolve_public_id(ctx, project_id, slug).await?
+    };
+
     let ping_url = ctx.ping_url();
 
     // Generate run_id for START/END pairing
     // This enables accurate duration tracking even with concurrent runs
     let run_id = uuid::Uuid::new_v4().to_string();
 
-    // Load external monitor config
+    // Load external monitor config (only if slug is available)
     let (monitors, migration_mode) = load_external_config(&args, verbose);
 
     if verbose {
+        let slug_display = args.slug.as_deref().unwrap_or("<direct id>");
         eprintln!(
             "[verbose] Loaded {} external monitor(s) for '{}'",
             monitors.len(),
-            args.slug
+            slug_display
         );
         eprintln!("[verbose] Migration mode: {}", migration_mode);
     }
@@ -81,14 +102,21 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
         eprintln!("[verbose] Pakyas start ping succeeded");
     }
 
-    // Send start ping to external monitors (collect handle to await later)
-    let start_event = PingEvent::start(&args.slug);
-    let start_handle = dispatch_external_pings(
-        monitors.clone(),
-        start_event,
-        args.external_timeout_ms,
-        verbose,
-    );
+    // Send start ping to external monitors (collect handle to await later, only if slug available)
+    let start_handle = if let Some(slug) = &args.slug {
+        let start_event = PingEvent::start(slug);
+        dispatch_external_pings(
+            monitors.clone(),
+            start_event,
+            args.external_timeout_ms,
+            verbose,
+        )
+    } else {
+        if verbose {
+            eprintln!("[verbose] Skipping external monitors (no slug available with --id)");
+        }
+        None
+    };
 
     // Execute the wrapped command (capture output silently)
     if verbose {
@@ -105,9 +133,11 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
         );
     }
 
-    // Build completion event for external monitors
-    let completion_event =
-        PingEvent::completion(&args.slug, result.exit_code, duration_ms, &result.stderr);
+    // Build completion event for external monitors (only if slug available)
+    let completion_event = args
+        .slug
+        .as_ref()
+        .map(|slug| PingEvent::completion(slug, result.exit_code, duration_ms, &result.stderr));
 
     // Send completion ping to pakyas (with run_id for pairing)
     if verbose {
@@ -134,13 +164,10 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
     // Handle exit code based on pakyas result and migration mode
     let (exit_code, completion_handle) = match pakyas_result {
         Ok(_) => {
-            // Pakyas succeeded - dispatch externals and await before exit
-            let handle = dispatch_external_pings(
-                monitors,
-                completion_event,
-                args.external_timeout_ms,
-                verbose,
-            );
+            // Pakyas succeeded - dispatch externals and await before exit (only if slug available)
+            let handle = completion_event.and_then(|event| {
+                dispatch_external_pings(monitors, event, args.external_timeout_ms, verbose)
+            });
             (ExitCode::from(result.exit_code as u8), handle)
         }
         Err(e) if migration_mode => {
@@ -148,11 +175,12 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
             if verbose {
                 eprintln!("[verbose] Migration mode: awaiting external monitor success");
             }
-            let any_external_success = if monitors.is_empty() {
-                false
-            } else {
-                let timeout = args.external_timeout_ms.min(MIGRATION_MODE_TIMEOUT_MS);
-                dispatch_await_any_success(monitors, completion_event, timeout).await
+            let any_external_success = match completion_event {
+                Some(event) if !monitors.is_empty() => {
+                    let timeout = args.external_timeout_ms.min(MIGRATION_MODE_TIMEOUT_MS);
+                    dispatch_await_any_success(monitors, event, timeout).await
+                }
+                _ => false,
             };
 
             if any_external_success {
@@ -169,13 +197,10 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
         }
         Err(e) => {
             // Pakyas failed, strict mode: exit 3 (monitoring failure)
-            // Still notify externals and await before exit
-            let handle = dispatch_external_pings(
-                monitors,
-                completion_event,
-                args.external_timeout_ms,
-                verbose,
-            );
+            // Still notify externals and await before exit (only if slug available)
+            let handle = completion_event.and_then(|event| {
+                dispatch_external_pings(monitors, event, args.external_timeout_ms, verbose)
+            });
             print_error(&format!("Pakyas ping failed: {}", e));
             (ExitCode::from(EXIT_MONITORING_FAILURE), handle)
         }
@@ -220,6 +245,17 @@ fn load_external_config(
         return (vec![], false);
     }
 
+    // If no slug available (using --id), skip external monitors
+    let slug = match &args.slug {
+        Some(s) => s,
+        None => {
+            if verbose {
+                eprintln!("[verbose] No slug available (using --id), external monitors skipped");
+            }
+            return (vec![], args.migration_mode);
+        }
+    };
+
     // Show config paths being checked
     if verbose {
         eprintln!("[verbose] Checking external monitors config paths:");
@@ -236,7 +272,7 @@ fn load_external_config(
                     eprintln!("[verbose] Using config: {}", path.display());
                 }
             }
-            let monitors = config.build_monitors_for_check(&args.slug);
+            let monitors = config.build_monitors_for_check(slug);
             // CLI flag overrides config file
             let migration_mode = args.migration_mode || config.migration_mode;
             (monitors, migration_mode)

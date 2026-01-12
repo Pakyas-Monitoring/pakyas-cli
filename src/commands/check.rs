@@ -163,6 +163,8 @@ struct CheckRow {
     name: String,
     #[tabled(rename = "SLUG")]
     slug: String,
+    #[tabled(rename = "PUBLIC_ID")]
+    public_id: String,
     #[tabled(rename = "STATUS")]
     status: String,
     #[tabled(rename = "PERIOD")]
@@ -315,6 +317,7 @@ async fn list(ctx: &Context, verbose: bool) -> Result<()> {
         .map(|c| CheckRow {
             name: c.name,
             slug: c.slug,
+            public_id: c.public_id.to_string(),
             status: format_status(&c.status),
             period: format_duration(c.period_seconds),
             last_ping: format_relative_time(c.last_ping_at),

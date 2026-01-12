@@ -1,5 +1,6 @@
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
+use uuid::Uuid;
 
 #[derive(Parser)]
 #[command(name = "pakyas")]
@@ -294,8 +295,13 @@ pub enum CheckCommands {
 
 #[derive(Args, Clone)]
 pub struct PingArgs {
-    /// Check slug to ping
-    pub slug: String,
+    /// Check slug to ping (required unless --public_id is provided)
+    #[arg(required_unless_present = "public_id")]
+    pub slug: Option<String>,
+
+    /// Check public ID (UUID) - skips authentication and slug resolution
+    #[arg(long, env = "PAKYAS_PUBLIC_ID")]
+    pub public_id: Option<Uuid>,
 
     /// Send a "start" signal (job started)
     #[arg(long, conflicts_with_all = ["fail", "exit_code"])]
@@ -330,8 +336,13 @@ pub struct PingArgs {
 
 #[derive(Args, Clone)]
 pub struct MonitorArgs {
-    /// Check slug to monitor
-    pub slug: String,
+    /// Check slug to monitor (required unless --public_id is provided)
+    #[arg(required_unless_present = "public_id")]
+    pub slug: Option<String>,
+
+    /// Check public ID (UUID) - skips authentication and slug resolution
+    #[arg(long, env = "PAKYAS_PUBLIC_ID")]
+    pub public_id: Option<Uuid>,
 
     /// Command to execute (everything after --)
     #[arg(last = true, required = true)]
