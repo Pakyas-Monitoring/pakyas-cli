@@ -751,8 +751,10 @@ mod tests {
 
     #[test]
     fn test_credentials_v2_legacy_key_promotion() {
-        let mut creds = CredentialsV2::default();
-        creds.legacy_api_key = Some("pk_legacy_1234567890123456".to_string());
+        let mut creds = CredentialsV2 {
+            legacy_api_key: Some("pk_legacy_1234567890123456".to_string()),
+            ..Default::default()
+        };
 
         // Should promote to empty slot
         assert!(creds.promote_legacy_key_to_org("org_new"));
@@ -766,8 +768,10 @@ mod tests {
 
     #[test]
     fn test_credentials_v2_legacy_key_no_overwrite() {
-        let mut creds = CredentialsV2::default();
-        creds.legacy_api_key = Some("pk_legacy_1234567890123456".to_string());
+        let mut creds = CredentialsV2 {
+            legacy_api_key: Some("pk_legacy_1234567890123456".to_string()),
+            ..Default::default()
+        };
         creds.set_for_org("org_existing", OrgCredential::new("pk_existing_key_1234567".to_string()));
 
         // Should NOT promote if org already has a key

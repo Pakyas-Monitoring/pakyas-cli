@@ -473,8 +473,10 @@ color = false
 
     #[test]
     fn test_context_org_override() {
-        let mut config = Config::default();
-        config.active_org_id = Some("config-org".to_string());
+        let config = Config {
+            active_org_id: Some("config-org".to_string()),
+            ..Default::default()
+        };
 
         let mut ctx = Context::with_config(config);
 
@@ -488,8 +490,10 @@ color = false
 
     #[test]
     fn test_context_project_override() {
-        let mut config = Config::default();
-        config.active_project_id = Some("config-project".to_string());
+        let config = Config {
+            active_project_id: Some("config-project".to_string()),
+            ..Default::default()
+        };
 
         let mut ctx = Context::with_config(config);
 
@@ -523,8 +527,10 @@ color = false
 
     #[test]
     fn test_context_active_org_fallback() {
-        let mut config = Config::default();
-        config.active_org_id = Some("fallback-org".to_string());
+        let config = Config {
+            active_org_id: Some("fallback-org".to_string()),
+            ..Default::default()
+        };
 
         let ctx = Context::with_config(config);
 
