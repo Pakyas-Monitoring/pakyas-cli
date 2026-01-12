@@ -26,6 +26,10 @@ pub struct Cli {
     #[arg(long, global = true, env = "PAKYAS_NO_UPDATE_CHECK")]
     pub no_update_check: bool,
 
+    /// Ignore PAKYAS_API_KEY environment variable for this command
+    #[arg(long, global = true)]
+    pub ignore_env: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }
@@ -101,6 +105,10 @@ pub enum OrgCommands {
     Switch {
         /// Organization name or ID
         name: String,
+
+        /// Fail if no key stored (for CI/scripts, disables interactive prompts)
+        #[arg(long)]
+        no_prompt: bool,
     },
 }
 

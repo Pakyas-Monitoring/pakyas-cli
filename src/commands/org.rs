@@ -55,7 +55,7 @@ pub async fn handle(ctx: &Context, command: OrgCommands, verbose: bool) -> Resul
 
     match command {
         OrgCommands::List => list(ctx, verbose).await,
-        OrgCommands::Switch { name } => switch(ctx, &name, verbose).await,
+        OrgCommands::Switch { name, no_prompt: _ } => switch(ctx, &name, verbose).await,
     }
 }
 

@@ -3,6 +3,7 @@ use crate::error::CliError;
 use anyhow::Result;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 // Build-time defaults injected via build.rs
@@ -31,6 +32,10 @@ pub struct Config {
 
     #[serde(default = "default_true")]
     pub color: bool,
+
+    /// Org aliases (alias -> org_id mapping)
+    #[serde(default)]
+    pub org_aliases: HashMap<String, String>,
 }
 
 fn default_api_url() -> String {
@@ -47,35 +52,21 @@ fn default_true() -> bool {
 
 impl Config {
     pub fn load() -> Result<Self, CliError> {
-        let path = Self::path()?;
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let content = std::fs::read_to_string(&path).map_err(CliError::ConfigRead)?;
-        let config: Config = toml::from_str(&content)?;
-        Ok(config)
+        Self::load_from_path(&Self::path()?)
     }
 
     pub fn save(&self) -> Result<(), CliError> {
-        let path = Self::path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(CliError::ConfigWrite)?;
-        }
-        let content = toml::to_string_pretty(self)?;
-        std::fs::write(&path, content).map_err(CliError::ConfigWrite)?;
-        Ok(())
+        self.save_to_path(&Self::path()?)
     }
 
     pub fn path() -> Result<PathBuf, CliError> {
-        let dirs = ProjectDirs::from("com", "pakyas", "pakyas")
-            .ok_or_else(|| CliError::Other("Could not determine config directory".to_string()))?;
-        Ok(dirs.config_dir().join("config.toml"))
+        Ok(Self::config_dir()?.join("config.toml"))
     }
 
     pub fn config_dir() -> Result<PathBuf, CliError> {
-        let dirs = ProjectDirs::from("com", "pakyas", "pakyas")
-            .ok_or_else(|| CliError::Other("Could not determine config directory".to_string()))?;
-        Ok(dirs.config_dir().to_path_buf())
+        ProjectDirs::from("com", "pakyas", "pakyas")
+            .map(|dirs| dirs.config_dir().to_path_buf())
+            .ok_or_else(|| CliError::Other("Could not determine config directory".to_string()))
     }
 }
 
@@ -91,6 +82,7 @@ impl Default for Config {
             active_project_name: None,
             format: "table".to_string(),
             color: true,
+            org_aliases: HashMap::new(),
         }
     }
 }
@@ -102,6 +94,8 @@ pub struct Context {
     org_override: Option<String>,
     project_override: Option<String>,
     format_override: Option<OutputFormat>,
+    /// When true, ignore PAKYAS_API_KEY env var
+    ignore_env: bool,
 }
 
 // Path-injectable methods for testing
@@ -135,6 +129,7 @@ impl Context {
             org_override: None,
             project_override: None,
             format_override: None,
+            ignore_env: false,
         })
     }
 
@@ -145,6 +140,7 @@ impl Context {
             org_override: None,
             project_override: None,
             format_override: None,
+            ignore_env: false,
         }
     }
 
@@ -158,6 +154,14 @@ impl Context {
 
     pub fn set_format(&mut self, format: OutputFormat) {
         self.format_override = Some(format);
+    }
+
+    pub fn set_ignore_env(&mut self, ignore_env: bool) {
+        self.ignore_env = ignore_env;
+    }
+
+    pub fn ignore_env(&self) -> bool {
+        self.ignore_env
     }
 
     pub fn api_url(&self) -> String {
@@ -289,6 +293,7 @@ mod tests {
             active_project_name: Some("My Project".to_string()),
             format: "json".to_string(),
             color: false,
+            org_aliases: HashMap::new(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -398,6 +403,7 @@ color = false
             active_project_name: None,
             format: "table".to_string(),
             color: true,
+            org_aliases: HashMap::new(),
         };
 
         config.save_to_path(&path).unwrap();

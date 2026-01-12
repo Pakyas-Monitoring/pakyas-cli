@@ -66,6 +66,9 @@ urlencoding = "2.1"
 semver = "1.0"
 atty = "0.2"
 
+# File locking
+fs2 = "0.4"
+
 # Self-update dependencies
 flate2 = "1.0"
 tar = "0.4"

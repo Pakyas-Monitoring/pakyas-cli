@@ -44,6 +44,24 @@ pub enum CliError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("Credentials file is corrupted. Run 'pakyas login' or 'pakyas auth key set --org <org>' to fix.")]
+    CredentialsCorrupted,
+
+    #[error("Failed to acquire config lock. Another pakyas process may be running.")]
+    LockFailed,
+
+    #[error("State changed in another terminal: {0}")]
+    ConcurrentModification(String),
+
+    #[error("No API key for organization '{0}'. Run: pakyas org switch {0}")]
+    NoKeyForOrg(String),
+
+    #[error("API key belongs to org '{key_org}' but active org is '{active_org}'.\nRun: pakyas auth key create --org {active_org}\nOr:  pakyas org switch {key_org}")]
+    OrgKeyMismatch { key_org: String, active_org: String },
+
+    #[error("Cannot switch org while PAKYAS_API_KEY is set.\nEither: unset PAKYAS_API_KEY, or pass --ignore-env")]
+    EnvKeyBlocksSwitch,
+
     #[error("{0}")]
     Other(String),
 }
