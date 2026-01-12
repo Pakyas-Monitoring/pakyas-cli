@@ -34,6 +34,7 @@ struct AuthResponse {
 
 #[derive(Debug, Deserialize)]
 struct AuthUser {
+    #[allow(dead_code)]
     id: Uuid,
     #[allow(dead_code)]
     email: String,
@@ -97,6 +98,7 @@ struct PollCliAuthResponse {
     api_key: Option<String>,
     selected_org: Option<CliAuthOrgInfo>,
     user_email: Option<String>,
+    #[allow(dead_code)]
     user_id: Option<Uuid>,
 }
 
@@ -218,13 +220,8 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
     );
     creds_v2.save()?;
 
-    // Also save legacy format for backward compatibility
-    let creds = Credentials {
-        api_key: Some(api_key.to_string()),
-        user_email: None,
-        user_id: None,
-    };
-    creds.save()?;
+    // Note: We only save V2 format now. The legacy Credentials::load()
+    // delegates to CredentialsV2::load() for backward compatibility.
 
     // Set default org and project if not already set
     let mut config = Config::load()?;
@@ -306,13 +303,7 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
     let orgs: Vec<OrganizationResponse> = orgs_response.json().await?;
 
     if orgs.is_empty() {
-        // No orgs yet, save just the user info for now
-        let creds = Credentials {
-            api_key: None,
-            user_email: Some(email),
-            user_id: Some(user.id.to_string()),
-        };
-        creds.save()?;
+        // No orgs yet - nothing to save since we have no API key
         print_info("No organizations found. Create one at https://pakyas.com");
         return Ok(());
     }
@@ -352,12 +343,25 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
 
     let api_key: ApiKeyCreated = api_key_response.json().await?;
 
-    // Save credentials
-    let creds = Credentials {
-        api_key: Some(api_key.full_key.clone()),
-        user_email: Some(email.clone()),
-        user_id: Some(user.id.to_string()),
-    };
+    // Save credentials in V2 format
+    let org_id = selected_org.id.to_string();
+    let mut creds = CredentialsV2::load()?;
+    let device_label = hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .map(|h| format!("{}-{}", h, Utc::now().format("%Y-%m-%d")))
+        .unwrap_or_else(|| format!("CLI-{}", Utc::now().format("%Y-%m-%d")));
+
+    creds.set_for_org(
+        &org_id,
+        OrgCredential {
+            api_key: api_key.full_key.clone(),
+            key_id: None,
+            label: Some(device_label),
+            added_at: Utc::now(),
+            last_verified: Some(Utc::now()),
+        },
+    );
     creds.save()?;
 
     // Save config with active org and project
@@ -536,13 +540,8 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                     );
                     creds.save()?;
 
-                    // Also save legacy format for backward compatibility
-                    let legacy_creds = Credentials {
-                        api_key: Some(api_key.clone()),
-                        user_email: poll_data.user_email.clone(),
-                        user_id: poll_data.user_id.map(|u| u.to_string()),
-                    };
-                    legacy_creds.save()?;
+                    // Note: We only save V2 format now. The legacy Credentials::load()
+                    // delegates to CredentialsV2::load() for backward compatibility.
 
                     // Save config with org and project
                     let mut config = Config::load()?;
@@ -574,12 +573,9 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                         Some(&api_key),
                     );
                 } else {
-                    // No org selected - save as legacy credential
-                    let creds = Credentials {
-                        api_key: Some(api_key.clone()),
-                        user_email: poll_data.user_email,
-                        user_id: poll_data.user_id.map(|u| u.to_string()),
-                    };
+                    // No org selected - save as legacy credential in V2 format
+                    let mut creds = CredentialsV2::load()?;
+                    creds.legacy_api_key = Some(api_key.clone());
                     creds.save()?;
 
                     print_login_summary(user_email.as_deref(), None, None, Some(&api_key));
