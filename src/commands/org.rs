@@ -25,6 +25,12 @@ struct OrganizationResponse {
     user_role: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct ProjectResponse {
+    id: Uuid,
+    name: String,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct Organization {
     id: Uuid,
@@ -246,7 +252,31 @@ async fn switch(ctx: &Context, name_or_id: &str, no_prompt: bool, verbose: bool)
     }
     // Lock released here
 
+    // 5. Fetch and set first project for this org (network call, no lock)
+    let project_name = {
+        let client = ApiClient::new(ctx)?;
+        let projects_url = format!("/api/v1/projects?org_id={}", target_org_id);
+        if let Ok(projects) = client.get::<Vec<ProjectResponse>>(&projects_url).await {
+            if let Some(first_project) = projects.first() {
+                // Re-acquire lock to update config
+                let _lock = GlobalLock::acquire()?;
+                let mut config = Config::load()?;
+                config.active_project_id = Some(first_project.id.to_string());
+                config.active_project_name = Some(first_project.name.clone());
+                config.save()?;
+                Some(first_project.name.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
     print_success(&format!("Switched to organization: {}", org_name));
+    if let Some(project) = project_name {
+        print_info(&format!("Active project: {}", project));
+    }
 
     // Warn if env var is still set (user used --ignore-env)
     if env_key_set && ctx.ignore_env() {
