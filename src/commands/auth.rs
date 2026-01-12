@@ -3,7 +3,7 @@ use crate::client::ApiClient;
 use crate::config::{Config, Context};
 use crate::credentials::{validate_api_key, Credentials, CredentialsV2, OrgCredential};
 use crate::error::CliError;
-use crate::output::{print_error, print_info, print_success};
+use crate::output::{print_error, print_info, print_success, print_warning};
 use anyhow::Result;
 use chrono::Utc;
 use dialoguer::{Input, Password};
@@ -662,4 +662,147 @@ pub async fn whoami(ctx: &Context, verbose: bool) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Show detailed authentication status.
+///
+/// Displays credential storage info, active org, key sources, and warnings.
+pub async fn auth_status(ctx: &Context, verbose: bool) -> Result<()> {
+    if verbose {
+        eprintln!("[verbose] API URL: {}", ctx.api_url());
+        if let Ok(path) = CredentialsV2::path() {
+            eprintln!("[verbose] Credentials path: {}", path.display());
+        }
+    }
+
+    // Check if env var is set
+    let env_key_set = std::env::var("PAKYAS_API_KEY").is_ok();
+
+    // Load V2 credentials (ignoring env var to show actual stored state)
+    let creds = load_credentials_ignoring_env()?;
+
+    println!("Authentication Status");
+    println!("=====================");
+    println!();
+
+    // Environment variable status
+    if env_key_set {
+        print_warning("PAKYAS_API_KEY environment variable is set");
+        println!("  All API calls will use the env var key (overrides stored credentials)");
+        println!("  Use --ignore-env to use stored credentials instead");
+        println!();
+    }
+
+    // Active organization
+    println!("Active Organization:");
+    if let Some(org_name) = ctx.active_org_name() {
+        println!("  Name: {}", org_name);
+    }
+    if let Some(org_id) = ctx.active_org_id() {
+        println!("  ID:   {}", org_id);
+
+        // Check if we have a key for this org
+        if creds.has_key_for_org(org_id) {
+            let cred = creds.get_for_org(org_id).unwrap();
+            let key_preview = format_key_preview(&cred.api_key);
+            println!("  Key:  {} (stored)", key_preview);
+            if let Some(ref label) = cred.label {
+                println!("  Label: {}", label);
+            }
+            if let Some(verified) = cred.last_verified {
+                println!("  Last verified: {}", verified.format("%Y-%m-%d %H:%M:%S UTC"));
+            }
+        } else if !env_key_set {
+            print_warning(&format!("No stored key for active org '{}'", org_id));
+            println!("  Run 'pakyas auth key set --org {}' to add one", org_id);
+        }
+    } else {
+        println!("  (none selected)");
+        print_info("Run 'pakyas org switch <org>' to select an organization");
+    }
+    println!();
+
+    // Active project
+    println!("Active Project:");
+    if let Some(project_name) = ctx.active_project_name() {
+        println!("  Name: {}", project_name);
+    }
+    if let Some(project_id) = ctx.active_project_id() {
+        println!("  ID:   {}", project_id);
+    } else {
+        println!("  (none selected)");
+    }
+    println!();
+
+    // Stored credentials summary
+    println!("Stored Credentials:");
+    let org_count = creds.orgs.len();
+    if org_count > 0 {
+        println!("  {} organization(s) with stored keys", org_count);
+        for org_id in creds.list_orgs_with_keys() {
+            let cred = creds.get_for_org(org_id).unwrap();
+            let key_preview = format_key_preview(&cred.api_key);
+            println!("    - {}: {}", org_id, key_preview);
+        }
+    } else {
+        println!("  No per-org keys stored");
+    }
+
+    // Legacy key warning
+    if creds.has_legacy_key() {
+        println!();
+        print_warning("Legacy API key detected (not associated with any org)");
+        if let Some(legacy_key) = creds.legacy_key() {
+            println!("  Key: {}", format_key_preview(legacy_key));
+        }
+        println!("  Run 'pakyas org switch <org>' to migrate it, or 'pakyas auth key rm --legacy' to remove.");
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Helper functions
+// ============================================================================
+
+/// Format a key preview (first 12 chars + ...)
+fn format_key_preview(key: &str) -> String {
+    if key.len() > 12 {
+        format!("{}...", &key[..12])
+    } else {
+        key.to_string()
+    }
+}
+
+/// Load credentials from file, ignoring PAKYAS_API_KEY env var.
+fn load_credentials_ignoring_env() -> Result<CredentialsV2, CliError> {
+    let path = CredentialsV2::path()?;
+
+    if !path.exists() {
+        return Ok(CredentialsV2::default());
+    }
+
+    let content = std::fs::read_to_string(&path).map_err(CliError::ConfigRead)?;
+
+    // Try to parse as V2 first
+    if let Ok(v2) = serde_json::from_str::<CredentialsV2>(&content) {
+        if v2.version == 2 {
+            return Ok(v2);
+        }
+    }
+
+    // Try to parse as V1 and migrate
+    #[derive(Deserialize)]
+    struct CredentialsV1 {
+        api_key: Option<String>,
+    }
+
+    match serde_json::from_str::<CredentialsV1>(&content) {
+        Ok(v1) => Ok(CredentialsV2 {
+            version: 2,
+            orgs: std::collections::HashMap::new(),
+            legacy_api_key: v1.api_key,
+        }),
+        Err(_) => Err(CliError::CredentialsCorrupted),
+    }
 }

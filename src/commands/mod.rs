@@ -1,5 +1,6 @@
 pub mod api_key;
 pub mod auth;
+pub mod auth_key;
 pub mod check;
 pub mod completion;
 pub mod monitor;

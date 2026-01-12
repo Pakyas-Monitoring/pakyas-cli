@@ -67,6 +67,10 @@ pub enum Commands {
     #[command(subcommand)]
     ApiKey(ApiKeyCommands),
 
+    /// Authentication management (credentials, status)
+    #[command(subcommand)]
+    Auth(AuthCommands),
+
     /// Generate shell completions
     Completion {
         /// Shell to generate completions for
@@ -373,6 +377,55 @@ pub enum ApiKeyCommands {
     Revoke {
         /// API key ID to revoke
         id: String,
+
+        /// Skip confirmation prompt
+        #[arg(long, short)]
+        yes: bool,
+    },
+}
+
+#[derive(Subcommand, Clone)]
+pub enum AuthCommands {
+    /// Show authentication status and credential info
+    Status,
+
+    /// Manage stored API keys for organizations
+    #[command(subcommand)]
+    Key(AuthKeyCommands),
+}
+
+#[derive(Subcommand, Clone)]
+pub enum AuthKeyCommands {
+    /// List all stored API keys by organization
+    List,
+
+    /// Set/import an API key for an organization
+    Set {
+        /// Organization ID to set key for
+        #[arg(long)]
+        org: String,
+
+        /// API key to store (will prompt if not provided)
+        #[arg(long)]
+        key: Option<String>,
+    },
+
+    /// Verify a stored API key is valid
+    Verify {
+        /// Organization ID to verify key for (uses active org if not specified)
+        #[arg(long)]
+        org: Option<String>,
+    },
+
+    /// Remove a stored API key
+    Rm {
+        /// Organization ID to remove key for
+        #[arg(long, conflicts_with = "legacy")]
+        org: Option<String>,
+
+        /// Remove the legacy (unmigrated) API key
+        #[arg(long, conflicts_with = "org")]
+        legacy: bool,
 
         /// Skip confirmation prompt
         #[arg(long, short)]

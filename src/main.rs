@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use pakyas_cli::cli::{Cli, Commands, OutputFormat};
+use pakyas_cli::cli::{AuthCommands, Cli, Commands, OutputFormat};
 use pakyas_cli::commands;
 use pakyas_cli::config;
 use pakyas_cli::update_cache::{UpdateCache, check_for_updates};
@@ -183,6 +183,17 @@ async fn execute_command(cli: &Cli, ctx: config::Context) -> Result<ExitCode> {
         }
         Commands::Update(args) => {
             commands::update::execute(&ctx, args.clone(), verbose).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Commands::Auth(auth_cmd) => {
+            match auth_cmd {
+                AuthCommands::Status => {
+                    commands::auth::auth_status(&ctx, verbose).await?;
+                }
+                AuthCommands::Key(key_cmd) => {
+                    commands::auth_key::handle(&ctx, key_cmd.clone(), verbose).await?;
+                }
+            }
             Ok(ExitCode::SUCCESS)
         }
     }
