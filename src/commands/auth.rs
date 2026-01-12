@@ -1,10 +1,11 @@
 use crate::cli::LoginArgs;
 use crate::client::ApiClient;
 use crate::config::{Config, Context};
-use crate::credentials::{Credentials, validate_api_key};
+use crate::credentials::{validate_api_key, Credentials, CredentialsV2, OrgCredential};
 use crate::error::CliError;
 use crate::output::{print_error, print_info, print_success};
 use anyhow::Result;
+use chrono::Utc;
 use dialoguer::{Input, Password};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
@@ -193,7 +194,31 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
         return Err(CliError::api("No organizations found for this API key").into());
     }
 
-    // Save credentials
+    // Select the first org (API key is bound to one org anyway)
+    let selected_org = &orgs[0];
+    let org_id = selected_org.id.to_string();
+
+    // Save credentials in V2 format
+    let mut creds_v2 = CredentialsV2::load()?;
+    let device_label = hostname::get()
+        .ok()
+        .and_then(|h| h.into_string().ok())
+        .map(|h| format!("{}-{}", h, Utc::now().format("%Y-%m-%d")))
+        .unwrap_or_else(|| format!("CLI-{}", Utc::now().format("%Y-%m-%d")));
+
+    creds_v2.set_for_org(
+        &org_id,
+        OrgCredential {
+            api_key: api_key.to_string(),
+            key_id: None,
+            label: Some(device_label),
+            added_at: Utc::now(),
+            last_verified: Some(Utc::now()),
+        },
+    );
+    creds_v2.save()?;
+
+    // Also save legacy format for backward compatibility
     let creds = Credentials {
         api_key: Some(api_key.to_string()),
         user_email: None,
@@ -204,8 +229,7 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
     // Set default org and project if not already set
     let mut config = Config::load()?;
     if config.active_org_id.is_none() {
-        let selected_org = &orgs[0];
-        config.active_org_id = Some(selected_org.id.to_string());
+        config.active_org_id = Some(org_id);
         config.active_org_name = Some(selected_org.name.clone());
 
         // Clear stale project data first
@@ -482,19 +506,43 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                     .api_key
                     .ok_or_else(|| CliError::api("Missing API key in response"))?;
 
-                // Save credentials
                 let user_email = poll_data.user_email.clone();
-                let creds = Credentials {
-                    api_key: Some(api_key.clone()),
-                    user_email: poll_data.user_email,
-                    user_id: poll_data.user_id.map(|u| u.to_string()),
-                };
-                creds.save()?;
 
-                // Save config with org and project
-                if let Some(org) = poll_data.selected_org {
+                // Save credentials in V2 format (per-org storage)
+                if let Some(ref org) = poll_data.selected_org {
+                    let mut creds = CredentialsV2::load()?;
+                    let org_id = org.id.to_string();
+
+                    // Create device label
+                    let device_label = hostname::get()
+                        .ok()
+                        .and_then(|h| h.into_string().ok())
+                        .map(|h| format!("{}-{}", h, Utc::now().format("%Y-%m-%d")))
+                        .unwrap_or_else(|| format!("CLI-{}", Utc::now().format("%Y-%m-%d")));
+
+                    creds.set_for_org(
+                        &org_id,
+                        OrgCredential {
+                            api_key: api_key.clone(),
+                            key_id: None,
+                            label: Some(device_label),
+                            added_at: Utc::now(),
+                            last_verified: Some(Utc::now()),
+                        },
+                    );
+                    creds.save()?;
+
+                    // Also save legacy format for backward compatibility
+                    let legacy_creds = Credentials {
+                        api_key: Some(api_key.clone()),
+                        user_email: poll_data.user_email.clone(),
+                        user_id: poll_data.user_id.map(|u| u.to_string()),
+                    };
+                    legacy_creds.save()?;
+
+                    // Save config with org and project
                     let mut config = Config::load()?;
-                    config.active_org_id = Some(org.id.to_string());
+                    config.active_org_id = Some(org_id.clone());
                     config.active_org_name = Some(org.name.clone());
 
                     // Clear stale project data first
@@ -522,12 +570,15 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                         Some(&api_key),
                     );
                 } else {
-                    print_login_summary(
-                        user_email.as_deref(),
-                        None,
-                        None,
-                        Some(&api_key),
-                    );
+                    // No org selected - save as legacy credential
+                    let creds = Credentials {
+                        api_key: Some(api_key.clone()),
+                        user_email: poll_data.user_email,
+                        user_id: poll_data.user_id.map(|u| u.to_string()),
+                    };
+                    creds.save()?;
+
+                    print_login_summary(user_email.as_deref(), None, None, Some(&api_key));
                 }
 
                 return Ok(());
