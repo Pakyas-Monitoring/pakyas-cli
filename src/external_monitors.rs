@@ -224,18 +224,23 @@ impl ExternalMonitorConfig {
         paths
     }
 
-    /// Build monitor targets for a specific check slug
+    /// Build monitor targets for a specific check identifier (slug or public_id)
+    ///
+    /// The `key` parameter can be either a check slug (e.g., "backup-db") or a
+    /// public_id UUID string (e.g., "550e8400-e29b-41d4-a716-446655440000").
+    /// This allows external monitors to work with both slug-based and
+    /// public_id-based CLI invocations.
     ///
     /// Resolution order:
     /// 1. Global settings (endpoint, api_key, webhook url)
-    /// 2. Per-check IDs (uuid, monitor_key)
+    /// 2. Per-check IDs (uuid, monitor_key) looked up by key
     /// 3. Merge: global settings + per-check IDs = complete target
     /// 4. No ID configured = service skipped
-    pub fn build_monitors_for_check(&self, check_slug: &str) -> Vec<MonitorTarget> {
+    pub fn build_monitors_for_check(&self, key: &str) -> Vec<MonitorTarget> {
         let mut targets = Vec::new();
 
         // Get per-check config if exists
-        let check_config = self.file_config.checks.get(check_slug);
+        let check_config = self.file_config.checks.get(key);
 
         // Healthchecks.io: needs global endpoint + per-check uuid
         if let Some(check_hc) = check_config.and_then(|c| c.targets.healthchecks.as_ref()) {

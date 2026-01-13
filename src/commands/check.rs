@@ -1257,7 +1257,13 @@ fn print_check_created(ctx: &Context, check: &Check, ping_url: &str, grace_auto:
     println!("    curl -fsS {}\n", ping_url);
 
     println!("  Monitor with:");
-    println!("    pakyas monitor {} -- your-command", check.slug);
+    println!("    pakyas monitor {} -- your-command\n", check.slug);
+
+    println!("  CI/CD (no auth required):");
+    println!(
+        "    pakyas monitor --public-id {} -- your-command",
+        check.public_id
+    );
 }
 
 /// Print check creation success in JSON format
@@ -1275,6 +1281,7 @@ fn print_check_json(ctx: &Context, check: &Check, ping_url: &str, grace_auto: bo
 
     let output = serde_json::json!({
         "id": check.id,
+        "public_id": check.public_id,
         "slug": check.slug,
         "name": check.name,
         "ping_url": ping_url,

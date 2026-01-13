@@ -27,9 +27,12 @@ pub enum EventType {
 }
 
 /// Ping event payload - unified model mapped to each service's format
+///
+/// The `check_identifier` field contains either a check slug or public_id,
+/// depending on how the CLI was invoked.
 #[derive(Debug, Clone, Serialize)]
 pub struct PingEvent {
-    pub check_slug: String,
+    pub check_identifier: String,
     pub event_type: EventType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
@@ -44,9 +47,9 @@ pub struct PingEvent {
 
 impl PingEvent {
     /// Create a start event
-    pub fn start(check_slug: &str) -> Self {
+    pub fn start(check_identifier: &str) -> Self {
         Self {
-            check_slug: check_slug.to_string(),
+            check_identifier: check_identifier.to_string(),
             event_type: EventType::Start,
             exit_code: None,
             duration_ms: None,
@@ -57,9 +60,9 @@ impl PingEvent {
     }
 
     /// Create a success event
-    pub fn success(check_slug: &str, duration_ms: u64) -> Self {
+    pub fn success(check_identifier: &str, duration_ms: u64) -> Self {
         Self {
-            check_slug: check_slug.to_string(),
+            check_identifier: check_identifier.to_string(),
             event_type: EventType::Success,
             exit_code: Some(0),
             duration_ms: Some(duration_ms),
@@ -70,9 +73,9 @@ impl PingEvent {
     }
 
     /// Create a failure event
-    pub fn fail(check_slug: &str, exit_code: i32, duration_ms: u64, stderr: &str) -> Self {
+    pub fn fail(check_identifier: &str, exit_code: i32, duration_ms: u64, stderr: &str) -> Self {
         Self {
-            check_slug: check_slug.to_string(),
+            check_identifier: check_identifier.to_string(),
             event_type: EventType::Fail,
             exit_code: Some(exit_code),
             duration_ms: Some(duration_ms),
@@ -83,11 +86,16 @@ impl PingEvent {
     }
 
     /// Create a completion event based on exit code
-    pub fn completion(check_slug: &str, exit_code: i32, duration_ms: u64, stderr: &str) -> Self {
+    pub fn completion(
+        check_identifier: &str,
+        exit_code: i32,
+        duration_ms: u64,
+        stderr: &str,
+    ) -> Self {
         if exit_code == 0 {
-            Self::success(check_slug, duration_ms)
+            Self::success(check_identifier, duration_ms)
         } else {
-            Self::fail(check_slug, exit_code, duration_ms, stderr)
+            Self::fail(check_identifier, exit_code, duration_ms, stderr)
         }
     }
 }
@@ -247,7 +255,7 @@ pub fn dispatch_external_pings(
         if verbose {
             eprintln!(
                 "[verbose] No external monitors configured for '{}'",
-                event.check_slug
+                event.check_identifier
             );
         }
         return None;
@@ -258,7 +266,7 @@ pub fn dispatch_external_pings(
             "[verbose] Dispatching {:?} ping to {} external monitor(s) for '{}'",
             event.event_type,
             monitors.len(),
-            event.check_slug
+            event.check_identifier
         );
         for target in &monitors {
             eprintln!("[verbose]   - {}: {}", target.name(), target.display_url());
@@ -394,7 +402,7 @@ mod tests {
     fn test_ping_event_start() {
         let event = PingEvent::start("my-check");
 
-        assert_eq!(event.check_slug, "my-check");
+        assert_eq!(event.check_identifier, "my-check");
         assert_eq!(event.event_type, EventType::Start);
         assert!(event.exit_code.is_none());
         assert!(event.duration_ms.is_none());
@@ -405,7 +413,7 @@ mod tests {
     fn test_ping_event_success() {
         let event = PingEvent::success("my-check", 1234);
 
-        assert_eq!(event.check_slug, "my-check");
+        assert_eq!(event.check_identifier, "my-check");
         assert_eq!(event.event_type, EventType::Success);
         assert_eq!(event.exit_code, Some(0));
         assert_eq!(event.duration_ms, Some(1234));
@@ -416,7 +424,7 @@ mod tests {
     fn test_ping_event_fail() {
         let event = PingEvent::fail("my-check", 1, 5678, "error message");
 
-        assert_eq!(event.check_slug, "my-check");
+        assert_eq!(event.check_identifier, "my-check");
         assert_eq!(event.event_type, EventType::Fail);
         assert_eq!(event.exit_code, Some(1));
         assert_eq!(event.duration_ms, Some(5678));
@@ -477,7 +485,7 @@ mod tests {
         let event = PingEvent::fail("my-check", 1, 1234, "error");
         let json = serde_json::to_string(&event).unwrap();
 
-        assert!(json.contains("\"check_slug\":\"my-check\""));
+        assert!(json.contains("\"check_identifier\":\"my-check\""));
         assert!(json.contains("\"event_type\":\"fail\""));
         assert!(json.contains("\"exit_code\":1"));
         assert!(json.contains("\"duration_ms\":1234"));

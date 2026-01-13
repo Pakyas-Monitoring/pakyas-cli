@@ -60,20 +60,26 @@ pub async fn execute(ctx: &Context, args: PingArgs, verbose: bool) -> Result<()>
     // Print appropriate success message
     print_ping_success(&args, public_id);
 
-    // Dispatch to external monitors and await completion (only if slug is available)
+    // Dispatch to external monitors and await completion
+    // Supports both slug and public_id as config lookup keys
     if !args.no_external {
-        if let Some(slug) = &args.slug {
-            dispatch_external_ping(&args, slug, verbose).await;
-        } else if verbose {
-            eprintln!("[verbose] Skipping external monitors (no slug available with --id)");
-        }
+        let check_identifier = args.slug.clone().unwrap_or_else(|| public_id.to_string());
+        dispatch_external_ping(&args, &check_identifier, public_id, verbose).await;
     }
 
     Ok(())
 }
 
 /// Dispatch ping to external monitors and await completion
-async fn dispatch_external_ping(args: &PingArgs, slug: &str, verbose: bool) {
+///
+/// The `check_identifier` parameter can be either a slug or a public_id string,
+/// allowing external monitors to work with both slug-based and public_id-based invocations.
+async fn dispatch_external_ping(
+    args: &PingArgs,
+    check_identifier: &str,
+    _public_id: Uuid,
+    verbose: bool,
+) {
     // Show config paths being checked
     if verbose {
         eprintln!("[verbose] Checking external monitors config paths:");
@@ -101,14 +107,14 @@ async fn dispatch_external_ping(args: &PingArgs, slug: &str, verbose: bool) {
         }
     };
 
-    // Build targets for this check
-    let monitors = external_config.build_monitors_for_check(slug);
+    // Build targets for this check (key can be slug or public_id)
+    let monitors = external_config.build_monitors_for_check(check_identifier);
 
     if verbose {
         eprintln!(
             "[verbose] Loaded {} external monitor(s) for '{}'",
             monitors.len(),
-            slug
+            check_identifier
         );
     }
 
@@ -117,7 +123,7 @@ async fn dispatch_external_ping(args: &PingArgs, slug: &str, verbose: bool) {
     }
 
     // Build the event based on ping type
-    let event = build_external_event(args, slug);
+    let event = build_external_event(args, check_identifier);
 
     // Dispatch and await completion
     if let Some(handle) =
@@ -131,12 +137,12 @@ async fn dispatch_external_ping(args: &PingArgs, slug: &str, verbose: bool) {
 }
 
 /// Build external ping event from args
-fn build_external_event(args: &PingArgs, slug: &str) -> PingEvent {
+fn build_external_event(args: &PingArgs, check_identifier: &str) -> PingEvent {
     if args.start {
-        PingEvent::start(slug)
+        PingEvent::start(check_identifier)
     } else if args.fail {
         PingEvent {
-            check_slug: slug.to_string(),
+            check_identifier: check_identifier.to_string(),
             event_type: EventType::Fail,
             exit_code: Some(1),
             duration_ms: None,
@@ -145,9 +151,9 @@ fn build_external_event(args: &PingArgs, slug: &str) -> PingEvent {
             output: None,
         }
     } else if let Some(exit_code) = args.exit_code {
-        PingEvent::completion(slug, exit_code, 0, "")
+        PingEvent::completion(check_identifier, exit_code, 0, "")
     } else {
-        PingEvent::success(slug, 0)
+        PingEvent::success(check_identifier, 0)
     }
 }
 
