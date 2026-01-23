@@ -32,7 +32,7 @@ async fn run() -> Result<ExitCode> {
     if let Some(format) = cli.format {
         ctx.set_format(format);
     }
-    ctx.set_timezone_mode(cli.tz);
+    ctx.set_timezone_mode(cli.display_tz);
     ctx.set_time_display_mode(cli.time);
     ctx.set_no_color(cli.no_color);
     ctx.set_plain(cli.plain);

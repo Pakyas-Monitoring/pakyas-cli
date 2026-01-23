@@ -31,15 +31,15 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub ignore_env: bool,
 
-    /// Timezone for timestamps: local or utc
+    /// Timezone for timestamp display: local or utc
     #[arg(
-        long,
+        long = "display-tz",
         global = true,
         value_enum,
         default_value = "local",
-        env = "PAKYAS_TZ"
+        env = "PAKYAS_DISPLAY_TZ"
     )]
-    pub tz: TimeZoneMode,
+    pub display_tz: TimeZoneMode,
 
     /// Time display mode: relative, absolute, or both
     #[arg(
