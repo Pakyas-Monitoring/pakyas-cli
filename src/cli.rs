@@ -222,12 +222,32 @@ pub enum CheckCommands {
         every: Option<String>,
 
         /// Grace period before marking as missed (e.g., "10m", "30s"). Auto-derived if not specified.
-        #[arg(long, value_name = "DURATION")]
-        grace: Option<String>,
+        #[arg(
+            long = "missing-after",
+            visible_alias = "grace",
+            value_name = "DURATION"
+        )]
+        missing_after: Option<String>,
 
         /// Check description
         #[arg(long)]
         description: Option<String>,
+
+        /// Tags (comma-separated)
+        #[arg(long)]
+        tags: Option<String>,
+
+        /// Alert after N consecutive missed pings (1-100)
+        #[arg(long, value_parser = clap::value_parser!(i32).range(1..=100))]
+        alert_after_miss_pings: Option<i32>,
+
+        /// Alert after N consecutive explicit failures (1-100)
+        #[arg(long, value_parser = clap::value_parser!(i32).range(1..=100))]
+        alert_after_fail_pings: Option<i32>,
+
+        /// Maximum runtime (e.g., 5m, 10m)
+        #[arg(long, value_name = "DURATION")]
+        max_runtime: Option<String>,
 
         /// Output as JSON (compact, for scripting)
         #[arg(long)]
@@ -355,28 +375,24 @@ pub enum CheckCommands {
         every: Option<String>,
 
         /// Grace period (e.g., 30s, 5m, or raw seconds)
-        #[arg(long)]
-        grace: Option<String>,
+        #[arg(long = "missing-after", visible_alias = "grace")]
+        missing_after: Option<String>,
 
         /// Tags (comma-separated, replaces existing)
         #[arg(long)]
         tags: Option<String>,
 
-        /// Alert after N consecutive failures (1-100)
-        #[arg(long)]
-        alert_after_failures: Option<i32>,
+        /// Alert after N consecutive missed pings (1-100)
+        #[arg(long, visible_alias = "alert-after-failures")]
+        alert_after_miss_pings: Option<i32>,
 
-        /// Late threshold as ratio of period (0.0-1.0)
-        #[arg(long)]
-        late_after_ratio: Option<f32>,
+        /// Alert after N consecutive explicit failures (1-100)
+        #[arg(long, visible_alias = "missed-before-alert")]
+        alert_after_fail_pings: Option<i32>,
 
         /// Maximum runtime (e.g., 5m, 10m, or raw seconds)
         #[arg(long)]
         max_runtime: Option<String>,
-
-        /// Alert after N consecutive misses (1-100)
-        #[arg(long)]
-        missed_before_alert: Option<i32>,
 
         /// Skip confirmation prompt
         #[arg(long, short = 'y')]

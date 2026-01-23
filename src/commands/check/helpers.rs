@@ -327,7 +327,7 @@ pub fn print_check_created(ctx: &Context, check: &Check, ping_url: &str, grace_a
     }
     println!(
         "  Grace:    {}{}\n",
-        format_duration(check.grace_seconds),
+        format_duration(check.missing_after_seconds),
         grace_suffix
     );
 
@@ -373,7 +373,7 @@ pub fn print_check_json(ctx: &Context, check: &Check, ping_url: &str, grace_auto
         "effective_timezone": effective_tz,
         "timezone_source": timezone_source,
         "period_seconds": check.period_seconds,
-        "grace_seconds": check.grace_seconds,
+        "grace_seconds": check.missing_after_seconds,
         "grace_auto": grace_auto,
     });
     println!("{}", serde_json::to_string(&output).unwrap());
@@ -386,7 +386,7 @@ pub fn print_dry_run(
     name: &Option<String>,
     cron_expression: &Option<String>,
     period_seconds: i32,
-    grace_seconds: i32,
+    missing_after_seconds: i32,
     grace_auto: bool,
     effective_tz: chrono_tz::Tz,
     tz_source: &str,
@@ -423,7 +423,7 @@ pub fn print_dry_run(
 
     println!(
         "  Grace:    {}{}",
-        format_duration(grace_seconds),
+        format_duration(missing_after_seconds),
         grace_suffix
     );
 }

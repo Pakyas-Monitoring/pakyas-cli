@@ -24,8 +24,12 @@ pub async fn create(
     cron: Option<String>,
     tz: Option<String>,
     every: Option<String>,
-    grace: Option<String>,
+    missing_after: Option<String>,
     description: Option<String>,
+    tags: Option<String>,
+    alert_after_miss_pings: Option<i32>,
+    alert_after_fail_pings: Option<i32>,
+    max_runtime: Option<String>,
     json_output: bool,
     quiet: bool,
     dry_run: bool,
@@ -68,13 +72,13 @@ pub async fn create(
     };
 
     // Validate and prepare schedule
-    let (cron_expression, timezone, period_seconds, grace_seconds, grace_auto) =
+    let (cron_expression, timezone, period_seconds, missing_after_seconds, grace_auto) =
         if let Some(cron_expr) = &cron {
             validate_cron_cli(cron_expr)?;
 
             let period = effective_period_from_cron(cron_expr).unwrap_or(3600);
 
-            let (grace_val, auto) = if let Some(g) = &grace {
+            let (grace_val, auto) = if let Some(g) = &missing_after {
                 (parse_duration(g)?, false)
             } else {
                 (smart_grace(period), true)
@@ -85,7 +89,7 @@ pub async fn create(
             let every_str = every.as_ref().unwrap();
             let period = parse_duration(every_str)?;
 
-            let (grace_val, auto) = if let Some(g) = &grace {
+            let (grace_val, auto) = if let Some(g) = &missing_after {
                 (parse_duration(g)?, false)
             } else {
                 (smart_grace(period), true)
@@ -115,7 +119,7 @@ pub async fn create(
             &name,
             &cron_expression,
             period_seconds,
-            grace_seconds,
+            missing_after_seconds,
             grace_auto,
             effective_tz,
             tz_source,
@@ -128,15 +132,28 @@ pub async fn create(
     let project_uuid = Uuid::parse_str(project_id)
         .map_err(|_| CliError::Other("Invalid project ID".to_string()))?;
 
+    // Parse optional fields
+    let tags_vec = tags.map(|t| {
+        t.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+    let max_runtime_seconds = max_runtime.map(|m| parse_duration(&m)).transpose()?;
+
     let req = CreateCheckRequest {
         project_id: project_uuid,
         name: display_name.clone(),
         slug: slug.clone(),
         period_seconds,
-        grace_seconds,
+        missing_after_seconds,
         description,
         cron_expression,
         timezone,
+        tags: tags_vec,
+        alert_after_miss_pings,
+        alert_after_fail_pings,
+        max_runtime_seconds,
     };
 
     // Create check
@@ -239,7 +256,7 @@ pub async fn create_interactive(
         .allow_empty(true)
         .interact_text()?;
 
-    let (grace_seconds, grace_auto) = if grace_input.trim().is_empty() {
+    let (missing_after_seconds, grace_auto) = if grace_input.trim().is_empty() {
         (default_grace, true)
     } else {
         (parse_duration(&grace_input)?, false)
@@ -260,16 +277,20 @@ pub async fn create_interactive(
     let project_uuid = Uuid::parse_str(project_id)
         .map_err(|_| CliError::Other("Invalid project ID".to_string()))?;
 
-    // Create
+    // Create (interactive mode doesn't prompt for advanced fields - use defaults)
     let req = CreateCheckRequest {
         project_id: project_uuid,
         name: display_name,
         slug: slug.clone(),
         period_seconds,
-        grace_seconds,
+        missing_after_seconds,
         description: final_description,
         cron_expression,
         timezone,
+        tags: None,
+        alert_after_miss_pings: None,
+        alert_after_fail_pings: None,
+        max_runtime_seconds: None,
     };
 
     let client = ApiClient::new(ctx)?;

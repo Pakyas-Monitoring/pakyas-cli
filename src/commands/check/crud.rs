@@ -80,7 +80,7 @@ pub async fn show(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()>
         slug: check.slug,
         status: check.status,
         period: format_duration(check.period_seconds),
-        grace: format_duration(check.grace_seconds),
+        grace: format_duration(check.missing_after_seconds),
         description: check.description,
         tags: check.tags,
         last_ping: format_relative_time(check.last_ping_at),

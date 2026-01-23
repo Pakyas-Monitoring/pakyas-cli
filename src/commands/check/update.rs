@@ -22,11 +22,10 @@ pub async fn update(
     cron: Option<String>,
     tz: Option<String>,
     every: Option<String>,
-    grace: Option<String>,
+    missing_after: Option<String>,
     tags: Option<String>,
     alert_after_miss_pings: Option<i32>,
     alert_after_fail_pings: Option<i32>,
-    late_after_ratio: Option<f32>,
     max_runtime: Option<String>,
     skip_confirm: bool,
     _verbose: bool,
@@ -41,11 +40,10 @@ pub async fn update(
         || cron.is_some()
         || tz.is_some()
         || every.is_some()
-        || grace.is_some()
+        || missing_after.is_some()
         || tags.is_some()
         || alert_after_miss_pings.is_some()
         || alert_after_fail_pings.is_some()
-        || late_after_ratio.is_some()
         || max_runtime.is_some();
 
     let req = if has_options {
@@ -56,11 +54,10 @@ pub async fn update(
             cron,
             tz,
             every,
-            grace,
+            missing_after,
             tags,
             alert_after_miss_pings,
             alert_after_fail_pings,
-            late_after_ratio,
             max_runtime,
         )?
     } else {
@@ -74,11 +71,10 @@ pub async fn update(
         && req.cron_expression.is_none()
         && req.timezone.is_none()
         && req.period_seconds.is_none()
-        && req.grace_seconds.is_none()
+        && req.missing_after_seconds.is_none()
         && req.tags.is_none()
         && req.alert_after_miss_pings.is_none()
         && req.alert_after_fail_pings.is_none()
-        && req.late_after_ratio.is_none()
         && req.max_runtime_seconds.is_none()
     {
         print_warning("No changes specified");
@@ -151,10 +147,10 @@ fn print_changes(check: &Check, req: &UpdateCheckRequest) {
             format_duration(new_period)
         );
     }
-    if let Some(new_grace) = req.grace_seconds {
+    if let Some(new_grace) = req.missing_after_seconds {
         println!(
             "  Grace: {} -> {}",
-            format_duration(check.grace_seconds),
+            format_duration(check.missing_after_seconds),
             format_duration(new_grace)
         );
     }
@@ -187,13 +183,6 @@ fn print_changes(check: &Check, req: &UpdateCheckRequest) {
             check.missed_before_alert, new_aafp
         );
     }
-    if let Some(new_lar) = req.late_after_ratio {
-        println!(
-            "  Late after ratio: {:.0}% -> {:.0}%",
-            check.late_after_ratio * 100.0,
-            new_lar * 100.0
-        );
-    }
     if let Some(new_max_runtime) = req.max_runtime_seconds {
         let old_max = check
             .max_runtime_seconds
@@ -215,11 +204,10 @@ fn build_update_request_from_options(
     cron: Option<String>,
     tz: Option<String>,
     every: Option<String>,
-    grace: Option<String>,
+    missing_after: Option<String>,
     tags: Option<String>,
     alert_after_miss_pings: Option<i32>,
     alert_after_fail_pings: Option<i32>,
-    late_after_ratio: Option<f32>,
     max_runtime: Option<String>,
 ) -> Result<UpdateCheckRequest> {
     // Handle cron validation
@@ -247,7 +235,7 @@ fn build_update_request_from_options(
     };
 
     let period_seconds = every.map(|p| parse_duration(&p)).transpose()?;
-    let grace_seconds = grace.map(|g| parse_duration(&g)).transpose()?;
+    let missing_after_seconds = missing_after.map(|g| parse_duration(&g)).transpose()?;
     let max_runtime_seconds = max_runtime.map(|m| parse_duration(&m)).transpose()?;
     let tags_vec = tags.map(|t| {
         t.split(',')
@@ -262,11 +250,10 @@ fn build_update_request_from_options(
         cron_expression,
         timezone,
         period_seconds,
-        grace_seconds,
+        missing_after_seconds,
         tags: tags_vec,
         alert_after_miss_pings,
         alert_after_fail_pings,
-        late_after_ratio,
         max_runtime_seconds,
     })
 }
@@ -398,11 +385,11 @@ fn build_update_request_interactive(check: &Check) -> Result<UpdateCheckRequest>
     // Grace
     let grace_input: String = Input::new()
         .with_prompt("Grace period (e.g., 30s, 5m)")
-        .default(format_duration(check.grace_seconds))
+        .default(format_duration(check.missing_after_seconds))
         .interact_text()?;
     let new_grace = parse_duration(&grace_input)?;
-    if new_grace != check.grace_seconds {
-        req.grace_seconds = Some(new_grace);
+    if new_grace != check.missing_after_seconds {
+        req.missing_after_seconds = Some(new_grace);
     }
 
     // Tags
@@ -441,16 +428,6 @@ fn build_update_request_interactive(check: &Check) -> Result<UpdateCheckRequest>
     let new_aafp: i32 = aafp_input.parse().unwrap_or(current_aafp);
     if new_aafp != current_aafp {
         req.alert_after_fail_pings = Some(new_aafp);
-    }
-
-    // Late after ratio
-    let lar_input: String = Input::new()
-        .with_prompt("Late after ratio (0.0-1.0)")
-        .default(format!("{:.2}", check.late_after_ratio))
-        .interact_text()?;
-    let new_lar: f32 = lar_input.parse().unwrap_or(check.late_after_ratio);
-    if (new_lar - check.late_after_ratio).abs() > f32::EPSILON {
-        req.late_after_ratio = Some(new_lar);
     }
 
     // Max runtime

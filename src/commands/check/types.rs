@@ -21,7 +21,7 @@ pub struct Check {
     pub tags: Vec<String>,
     pub description: Option<String>,
     pub period_seconds: i32,
-    pub grace_seconds: i32,
+    pub missing_after_seconds: i32,
     #[serde(default)]
     pub schedule_type: String,
     #[serde(default)]
@@ -39,8 +39,6 @@ pub struct Check {
     pub alert_after_failures: Option<i32>,
     #[serde(default)]
     pub consecutive_failures: i32,
-    #[serde(default = "default_late_after_ratio")]
-    pub late_after_ratio: f32,
     #[serde(default)]
     pub max_runtime_seconds: Option<i32>,
     #[serde(default = "default_missed_before_alert")]
@@ -64,10 +62,6 @@ pub struct Check {
     pub status_before_start: Option<String>,
     #[serde(default)]
     pub notify_on_recovery: Option<bool>,
-}
-
-fn default_late_after_ratio() -> f32 {
-    0.2
 }
 
 fn default_missed_before_alert() -> i32 {
@@ -95,13 +89,21 @@ pub struct CreateCheckRequest {
     pub name: String,
     pub slug: String,
     pub period_seconds: i32,
-    pub grace_seconds: i32,
+    pub missing_after_seconds: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cron_expression: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_after_miss_pings: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub alert_after_fail_pings: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_runtime_seconds: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -117,17 +119,15 @@ pub struct UpdateCheckRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub period_seconds: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub grace_seconds: Option<i32>,
+    pub missing_after_seconds: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub alert_after_failures: Option<i32>,
+    pub alert_after_miss_pings: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub late_after_ratio: Option<f32>,
+    pub alert_after_fail_pings: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_runtime_seconds: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub missed_before_alert: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -40,7 +40,7 @@ struct ScheduleInfo {
     kind: String,
     period_seconds: i32,
     cron_expression: Option<String>,
-    grace_seconds: i32,
+    missing_after_seconds: i32,
     timezone: Option<String>,
 }
 
@@ -140,7 +140,7 @@ pub async fn inspect(ctx: &Context, slug_or_id: &str, verbose: bool) -> Result<(
     }
     println!(
         "  grace        {}",
-        format_duration(response.schedule.grace_seconds)
+        format_duration(response.schedule.missing_after_seconds)
     );
     println!();
 
