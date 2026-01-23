@@ -2,9 +2,10 @@
 
 use crate::client::ApiClient;
 use crate::config::Context;
+use crate::cron::effective_period_from_cron;
 use crate::output::{print_success, print_warning};
 use anyhow::Result;
-use dialoguer::{Confirm, Input};
+use dialoguer::{Confirm, Input, Select};
 
 use super::helpers::{
     format_duration, parse_duration, resolve_check_by_org, validate_cron_cli, validate_timezone,
@@ -23,10 +24,10 @@ pub async fn update(
     every: Option<String>,
     grace: Option<String>,
     tags: Option<String>,
-    alert_after_failures: Option<i32>,
+    alert_after_miss_pings: Option<i32>,
+    alert_after_fail_pings: Option<i32>,
     late_after_ratio: Option<f32>,
     max_runtime: Option<String>,
-    missed_before_alert: Option<i32>,
     skip_confirm: bool,
     _verbose: bool,
 ) -> Result<()> {
@@ -42,10 +43,10 @@ pub async fn update(
         || every.is_some()
         || grace.is_some()
         || tags.is_some()
-        || alert_after_failures.is_some()
+        || alert_after_miss_pings.is_some()
+        || alert_after_fail_pings.is_some()
         || late_after_ratio.is_some()
-        || max_runtime.is_some()
-        || missed_before_alert.is_some();
+        || max_runtime.is_some();
 
     let req = if has_options {
         // Non-interactive mode: use provided options
@@ -57,10 +58,10 @@ pub async fn update(
             every,
             grace,
             tags,
-            alert_after_failures,
+            alert_after_miss_pings,
+            alert_after_fail_pings,
             late_after_ratio,
             max_runtime,
-            missed_before_alert,
         )?
     } else {
         // Interactive mode: prompt for each field
@@ -75,10 +76,10 @@ pub async fn update(
         && req.period_seconds.is_none()
         && req.grace_seconds.is_none()
         && req.tags.is_none()
-        && req.alert_after_failures.is_none()
+        && req.alert_after_miss_pings.is_none()
+        && req.alert_after_fail_pings.is_none()
         && req.late_after_ratio.is_none()
         && req.max_runtime_seconds.is_none()
-        && req.missed_before_alert.is_none()
     {
         print_warning("No changes specified");
         return Ok(());
@@ -170,14 +171,20 @@ fn print_changes(check: &Check, req: &UpdateCheckRequest) {
         };
         println!("  Tags: {} -> {}", old_tags, new_tags_display);
     }
-    if let Some(new_aaf) = req.alert_after_failures {
+    if let Some(new_aamp) = req.alert_after_miss_pings {
         println!(
-            "  Alert after failures: {} -> {}",
+            "  Alert after miss pings: {} -> {}",
             check
                 .alert_after_failures
                 .map(|v| v.to_string())
                 .unwrap_or_else(|| "inherited".to_string()),
-            new_aaf
+            new_aamp
+        );
+    }
+    if let Some(new_aafp) = req.alert_after_fail_pings {
+        println!(
+            "  Alert after fail pings: {} -> {}",
+            check.missed_before_alert, new_aafp
         );
     }
     if let Some(new_lar) = req.late_after_ratio {
@@ -198,12 +205,6 @@ fn print_changes(check: &Check, req: &UpdateCheckRequest) {
             format_duration(new_max_runtime)
         );
     }
-    if let Some(new_mba) = req.missed_before_alert {
-        println!(
-            "  Missed before alert: {} -> {}",
-            check.missed_before_alert, new_mba
-        );
-    }
 }
 
 /// Build UpdateCheckRequest from CLI options (non-interactive mode)
@@ -216,10 +217,10 @@ fn build_update_request_from_options(
     every: Option<String>,
     grace: Option<String>,
     tags: Option<String>,
-    alert_after_failures: Option<i32>,
+    alert_after_miss_pings: Option<i32>,
+    alert_after_fail_pings: Option<i32>,
     late_after_ratio: Option<f32>,
     max_runtime: Option<String>,
-    missed_before_alert: Option<i32>,
 ) -> Result<UpdateCheckRequest> {
     // Handle cron validation
     let cron_expression = if let Some(ref c) = cron {
@@ -263,10 +264,10 @@ fn build_update_request_from_options(
         period_seconds,
         grace_seconds,
         tags: tags_vec,
-        alert_after_failures,
+        alert_after_miss_pings,
+        alert_after_fail_pings,
         late_after_ratio,
         max_runtime_seconds,
-        missed_before_alert,
     })
 }
 
@@ -297,14 +298,101 @@ fn build_update_request_interactive(check: &Check) -> Result<UpdateCheckRequest>
         req.description = Some(desc_input);
     }
 
-    // Period
-    let period_input: String = Input::new()
-        .with_prompt("Period (e.g., 5m, 1h, 1d)")
-        .default(format_duration(check.period_seconds))
-        .interact_text()?;
-    let new_period = parse_duration(&period_input)?;
-    if new_period != check.period_seconds {
-        req.period_seconds = Some(new_period);
+    // Schedule type handling
+    let is_cron = check.cron_expression.is_some();
+
+    // Build schedule options based on current type
+    let schedule_options = if is_cron {
+        vec![
+            format!(
+                "Keep Cron (current: {})",
+                check.cron_expression.as_deref().unwrap_or("?")
+            ),
+            "Switch to Interval".to_string(),
+        ]
+    } else {
+        vec![
+            format!(
+                "Keep Interval (current: {})",
+                format_duration(check.period_seconds)
+            ),
+            "Switch to Cron".to_string(),
+        ]
+    };
+
+    let schedule_choice = Select::new()
+        .with_prompt("Schedule type")
+        .items(&schedule_options)
+        .default(0)
+        .interact()?;
+
+    // Handle based on choice
+    if is_cron {
+        if schedule_choice == 0 {
+            // Keep Cron - prompt to edit cron expression and timezone
+            let cron_input: String = Input::new()
+                .with_prompt("Cron expression (5-field)")
+                .default(check.cron_expression.clone().unwrap_or_default())
+                .interact_text()?;
+            if cron_input != check.cron_expression.as_deref().unwrap_or("") {
+                validate_cron_cli(&cron_input)?;
+                req.cron_expression = Some(cron_input);
+            }
+
+            let current_tz = check.timezone.clone().unwrap_or_default();
+            let tz_input: String = Input::new()
+                .with_prompt("Timezone (IANA format, blank for org default)")
+                .default(current_tz.clone())
+                .allow_empty(true)
+                .interact_text()?;
+            if tz_input != current_tz {
+                if !tz_input.is_empty() {
+                    validate_timezone(&tz_input)?;
+                }
+                req.timezone = Some(tz_input);
+            }
+        } else {
+            // Switch to Interval - clear cron, prompt for period
+            req.cron_expression = Some(String::new()); // Clear cron
+            req.timezone = Some(String::new()); // Clear timezone
+
+            let every_input: String = Input::new()
+                .with_prompt("Interval (e.g., 5m, 1h)")
+                .interact_text()?;
+            let new_period = parse_duration(&every_input)?;
+            req.period_seconds = Some(new_period);
+        }
+    } else if schedule_choice == 0 {
+        // Keep Interval - prompt to edit period
+        let period_input: String = Input::new()
+            .with_prompt("Period (e.g., 5m, 1h, 1d)")
+            .default(format_duration(check.period_seconds))
+            .interact_text()?;
+        let new_period = parse_duration(&period_input)?;
+        if new_period != check.period_seconds {
+            req.period_seconds = Some(new_period);
+        }
+    } else {
+        // Switch to Cron - prompt for cron expression and timezone
+        let cron_input: String = Input::new()
+            .with_prompt("Cron expression (5-field)")
+            .with_initial_text("0 2 * * *")
+            .interact_text()?;
+        validate_cron_cli(&cron_input)?;
+        req.cron_expression = Some(cron_input.clone());
+
+        // Update period from cron for consistency
+        let period = effective_period_from_cron(&cron_input).unwrap_or(3600);
+        req.period_seconds = Some(period);
+
+        let tz_input: String = Input::new()
+            .with_prompt("Timezone (IANA format, blank for org default)")
+            .allow_empty(true)
+            .interact_text()?;
+        if !tz_input.is_empty() {
+            validate_timezone(&tz_input)?;
+            req.timezone = Some(tz_input);
+        }
     }
 
     // Grace
@@ -333,15 +421,26 @@ fn build_update_request_interactive(check: &Check) -> Result<UpdateCheckRequest>
         req.tags = Some(new_tags);
     }
 
-    // Alert after failures
-    let current_aaf = check.alert_after_failures.unwrap_or(1);
-    let aaf_input: String = Input::new()
-        .with_prompt("Alert after failures (1-100)")
-        .default(current_aaf.to_string())
+    // Alert after miss pings (consecutive missed heartbeats before alerting)
+    let current_aamp = check.alert_after_failures.unwrap_or(1);
+    let aamp_input: String = Input::new()
+        .with_prompt("Alert after miss pings (1-100)")
+        .default(current_aamp.to_string())
         .interact_text()?;
-    let new_aaf: i32 = aaf_input.parse().unwrap_or(current_aaf);
-    if new_aaf != current_aaf {
-        req.alert_after_failures = Some(new_aaf);
+    let new_aamp: i32 = aamp_input.parse().unwrap_or(current_aamp);
+    if new_aamp != current_aamp {
+        req.alert_after_miss_pings = Some(new_aamp);
+    }
+
+    // Alert after fail pings (consecutive explicit /fail calls before alerting)
+    let current_aafp = check.missed_before_alert;
+    let aafp_input: String = Input::new()
+        .with_prompt("Alert after fail pings (1-100)")
+        .default(current_aafp.to_string())
+        .interact_text()?;
+    let new_aafp: i32 = aafp_input.parse().unwrap_or(current_aafp);
+    if new_aafp != current_aafp {
+        req.alert_after_fail_pings = Some(new_aafp);
     }
 
     // Late after ratio
@@ -372,16 +471,6 @@ fn build_update_request_interactive(check: &Check) -> Result<UpdateCheckRequest>
             let new_max_runtime = parse_duration(&max_runtime_input)?;
             req.max_runtime_seconds = Some(new_max_runtime);
         }
-    }
-
-    // Missed before alert
-    let mba_input: String = Input::new()
-        .with_prompt("Missed before alert (1-100)")
-        .default(check.missed_before_alert.to_string())
-        .interact_text()?;
-    let new_mba: i32 = mba_input.parse().unwrap_or(check.missed_before_alert);
-    if new_mba != check.missed_before_alert {
-        req.missed_before_alert = Some(new_mba);
     }
 
     Ok(req)
