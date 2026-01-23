@@ -6,7 +6,7 @@ use crate::error::CliError;
 use crate::output::{print_error, print_info, print_success, print_warning};
 use anyhow::Result;
 use chrono::Utc;
-use dialoguer::{Input, Password};
+use dialoguer::{Input, Password, Select};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -233,13 +233,12 @@ async fn login_with_api_key(ctx: &Context, api_key: &str) -> Result<()> {
         config.active_project_id = None;
         config.active_project_name = None;
 
-        // Fetch and set the first project for this org
-        let projects_url = format!("/api/v1/projects?org_id={}", selected_org.id);
-        if let Ok(projects) = client.get::<Vec<ProjectResponse>>(&projects_url).await {
-            if let Some(first_project) = projects.first() {
-                config.active_project_id = Some(first_project.id.to_string());
-                config.active_project_name = Some(first_project.name.clone());
-            }
+        // Interactive project selection
+        if let Some((project_id, project_name)) =
+            select_project_interactive(&client, &selected_org.id).await?
+        {
+            config.active_project_id = Some(project_id);
+            config.active_project_name = Some(project_name);
         }
 
         config.save()?;
@@ -373,14 +372,13 @@ async fn login_interactive(ctx: &Context) -> Result<()> {
     config.active_project_id = None;
     config.active_project_name = None;
 
-    // Fetch and set the first project for this org
+    // Interactive project selection
     let api_client = ApiClient::with_api_key(ctx, api_key.full_key.clone())?;
-    let projects_url = format!("/api/v1/projects?org_id={}", selected_org.id);
-    if let Ok(projects) = api_client.get::<Vec<ProjectResponse>>(&projects_url).await {
-        if let Some(first_project) = projects.first() {
-            config.active_project_id = Some(first_project.id.to_string());
-            config.active_project_name = Some(first_project.name.clone());
-        }
+    if let Some((project_id, project_name)) =
+        select_project_interactive(&api_client, &selected_org.id).await?
+    {
+        config.active_project_id = Some(project_id);
+        config.active_project_name = Some(project_name);
     }
 
     config.save()?;
@@ -552,16 +550,13 @@ async fn login_with_browser(ctx: &Context, verbose: bool) -> Result<()> {
                     config.active_project_id = None;
                     config.active_project_name = None;
 
-                    // Fetch and set the first project for this org
+                    // Interactive project selection
                     let api_client = ApiClient::with_api_key(ctx, api_key.clone())?;
-                    let projects_url = format!("/api/v1/projects?org_id={}", org.id);
-                    if let Ok(projects) =
-                        api_client.get::<Vec<ProjectResponse>>(&projects_url).await
+                    if let Some((project_id, project_name)) =
+                        select_project_interactive(&api_client, &org.id).await?
                     {
-                        if let Some(first_project) = projects.first() {
-                            config.active_project_id = Some(first_project.id.to_string());
-                            config.active_project_name = Some(first_project.name.clone());
-                        }
+                        config.active_project_id = Some(project_id);
+                        config.active_project_name = Some(project_name);
                     }
 
                     config.save()?;
@@ -809,5 +804,46 @@ fn load_credentials_ignoring_env() -> Result<CredentialsV2, CliError> {
             legacy_api_key: v1.api_key,
         }),
         Err(_) => Err(CliError::CredentialsCorrupted),
+    }
+}
+
+/// Interactively select a project for the given organization.
+///
+/// Returns `Some((project_id, project_name))` if a project was selected,
+/// or `None` if no projects exist or selection failed.
+async fn select_project_interactive(
+    client: &ApiClient,
+    org_id: &Uuid,
+) -> Result<Option<(String, String)>> {
+    let projects_url = format!("/api/v1/projects?org_id={}", org_id);
+    let projects: Vec<ProjectResponse> = match client.get(&projects_url).await {
+        Ok(p) => p,
+        Err(_) => return Ok(None), // Can't fetch projects, skip selection
+    };
+
+    match projects.len() {
+        0 => {
+            print_info("No projects found. Create one with 'pakyas project create'");
+            Ok(None)
+        }
+        1 => {
+            // Auto-select the only project
+            let project = &projects[0];
+            print_info(&format!("Using project: {}", project.name));
+            Ok(Some((project.id.to_string(), project.name.clone())))
+        }
+        _ => {
+            // Multiple projects - let user choose
+            let project_names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
+
+            let selection = Select::new()
+                .with_prompt("Select a project")
+                .items(&project_names)
+                .default(0)
+                .interact()?;
+
+            let selected = &projects[selection];
+            Ok(Some((selected.id.to_string(), selected.name.clone())))
+        }
     }
 }
