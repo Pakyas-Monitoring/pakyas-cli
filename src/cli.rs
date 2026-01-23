@@ -144,7 +144,11 @@ pub enum ProjectCommands {
 #[derive(Subcommand, Clone)]
 pub enum CheckCommands {
     /// List all checks in the active project
-    List,
+    List {
+        /// List all checks across the organization (not just active project)
+        #[arg(long)]
+        all: bool,
+    },
 
     /// Create a new check
     Create {

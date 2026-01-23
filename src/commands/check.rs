@@ -173,6 +173,32 @@ struct CheckRow {
     last_ping: String,
 }
 
+/// Check with project name for org-wide listing
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CheckWithProject {
+    #[serde(flatten)]
+    pub check: Check,
+    pub project_name: String,
+}
+
+#[derive(Debug, Tabled, Serialize)]
+struct CheckRowWithProject {
+    #[tabled(rename = "PROJECT")]
+    project: String,
+    #[tabled(rename = "NAME")]
+    name: String,
+    #[tabled(rename = "SLUG")]
+    slug: String,
+    #[tabled(rename = "PUBLIC_ID")]
+    public_id: String,
+    #[tabled(rename = "STATUS")]
+    status: String,
+    #[tabled(rename = "PERIOD")]
+    period: String,
+    #[tabled(rename = "LAST PING")]
+    last_ping: String,
+}
+
 #[derive(Debug, Tabled, Serialize)]
 struct PingRow {
     #[tabled(rename = "TIME")]
@@ -216,7 +242,7 @@ pub async fn handle(ctx: &Context, command: CheckCommands, verbose: bool) -> Res
     }
 
     match command {
-        CheckCommands::List => list(ctx, verbose).await,
+        CheckCommands::List { all } => list(ctx, all, verbose).await,
         CheckCommands::Create {
             slug,
             name,
@@ -290,41 +316,76 @@ pub async fn handle(ctx: &Context, command: CheckCommands, verbose: bool) -> Res
     }
 }
 
-/// List all checks in the active project
-async fn list(ctx: &Context, verbose: bool) -> Result<()> {
-    let project_id = ctx.require_project()?;
+/// List all checks in the active project or organization
+async fn list(ctx: &Context, all: bool, verbose: bool) -> Result<()> {
     let client = ApiClient::new(ctx)?;
 
-    let url = format!("/api/v1/checks?project_id={}", project_id);
+    if all {
+        // Org-wide listing
+        let org_id = ctx.require_org()?;
+        let url = format!("/api/v1/checks?org_id={}", org_id);
 
-    if verbose {
-        eprintln!("[verbose] Fetching checks from: {}", url);
+        if verbose {
+            eprintln!("[verbose] Fetching all checks for org from: {}", url);
+        }
+
+        let checks: Vec<CheckWithProject> = client.get(&url).await?;
+
+        if verbose {
+            eprintln!(
+                "[verbose] Found {} check(s) across organization",
+                checks.len()
+            );
+        }
+
+        let rows: Vec<CheckRowWithProject> = checks
+            .into_iter()
+            .map(|c| CheckRowWithProject {
+                project: c.project_name,
+                name: c.check.name,
+                slug: c.check.slug,
+                public_id: c.check.public_id.to_string(),
+                status: format_status(&c.check.status),
+                period: format_duration(c.check.period_seconds),
+                last_ping: format_relative_time(c.check.last_ping_at),
+            })
+            .collect();
+
+        print_output(ctx, rows)?;
+    } else {
+        // Project-scoped listing (existing behavior)
+        let project_id = ctx.require_project()?;
+        let url = format!("/api/v1/checks?project_id={}", project_id);
+
+        if verbose {
+            eprintln!("[verbose] Fetching checks from: {}", url);
+        }
+
+        let checks: Vec<Check> = client.get(&url).await?;
+
+        if verbose {
+            eprintln!("[verbose] Found {} check(s)", checks.len());
+        }
+
+        // Update cache
+        let mut cache = CheckCache::load()?;
+        cache.update_from_checks(project_id, checks.iter().cloned());
+        cache.save()?;
+
+        let rows: Vec<CheckRow> = checks
+            .into_iter()
+            .map(|c| CheckRow {
+                name: c.name,
+                slug: c.slug,
+                public_id: c.public_id.to_string(),
+                status: format_status(&c.status),
+                period: format_duration(c.period_seconds),
+                last_ping: format_relative_time(c.last_ping_at),
+            })
+            .collect();
+
+        print_output(ctx, rows)?;
     }
-
-    let checks: Vec<Check> = client.get(&url).await?;
-
-    if verbose {
-        eprintln!("[verbose] Found {} check(s)", checks.len());
-    }
-
-    // Update cache
-    let mut cache = CheckCache::load()?;
-    cache.update_from_checks(project_id, checks.iter().cloned());
-    cache.save()?;
-
-    let rows: Vec<CheckRow> = checks
-        .into_iter()
-        .map(|c| CheckRow {
-            name: c.name,
-            slug: c.slug,
-            public_id: c.public_id.to_string(),
-            status: format_status(&c.status),
-            period: format_duration(c.period_seconds),
-            last_ping: format_relative_time(c.last_ping_at),
-        })
-        .collect();
-
-    print_output(ctx, rows)?;
 
     Ok(())
 }
