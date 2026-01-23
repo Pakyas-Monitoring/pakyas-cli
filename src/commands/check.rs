@@ -647,8 +647,8 @@ async fn create_interactive(
 
 /// Show check details
 async fn show(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
 
     let detail = CheckDetail {
         id: check.id.to_string(),
@@ -673,8 +673,8 @@ async fn show(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
 
 /// Set check state (pause or resume)
 async fn set_check_state(ctx: &Context, slug_or_id: &str, action: &str) -> Result<()> {
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
     let url = format!("/api/v1/checks/{}/{}", check.id, action);
@@ -702,8 +702,8 @@ async fn resume(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
 
 /// Delete a check
 async fn delete(ctx: &Context, slug_or_id: &str, skip_confirm: bool, _verbose: bool) -> Result<()> {
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
 
     if !skip_confirm {
         let confirm = Confirm::new()
@@ -726,7 +726,7 @@ async fn delete(ctx: &Context, slug_or_id: &str, skip_confirm: bool, _verbose: b
 
     // Invalidate cache
     let mut cache = CheckCache::load()?;
-    cache.invalidate(project_id, &check.slug);
+    cache.invalidate(org_id, &check.slug);
     cache.save()?;
 
     print_success(&format!("Deleted check: {}", check.name));
@@ -736,8 +736,8 @@ async fn delete(ctx: &Context, slug_or_id: &str, skip_confirm: bool, _verbose: b
 
 /// Show ping history for a check
 async fn logs(ctx: &Context, slug_or_id: &str, limit: i32, _verbose: bool) -> Result<()> {
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
     let url = format!("/api/v1/checks/{}/pings?limit={}", check.id, limit);
@@ -767,18 +767,18 @@ async fn logs(ctx: &Context, slug_or_id: &str, limit: i32, _verbose: bool) -> Re
     Ok(())
 }
 
-/// Force refresh the local check cache
+/// Force refresh the local check cache for the organization
 async fn sync(ctx: &Context, _verbose: bool) -> Result<()> {
-    let project_id = ctx.require_project()?;
+    let org_id = ctx.require_org()?;
     let client = ApiClient::new(ctx)?;
 
-    let url = format!("/api/v1/checks?project_id={}", project_id);
-    let checks: Vec<Check> = client.get(&url).await?;
+    let url = format!("/api/v1/checks?org_id={}", org_id);
+    let checks: Vec<CheckWithProject> = client.get(&url).await?;
 
-    // Clear and rebuild cache for this project
+    // Clear and rebuild cache for this org
     let mut cache = CheckCache::load()?;
-    cache.clear_project(project_id);
-    cache.update_from_checks(project_id, checks.iter().cloned());
+    cache.clear_project(org_id);
+    cache.update_from_checks(org_id, checks.iter().map(|c| c.check.clone()));
     cache.save()?;
 
     print_success(&format!("Synced {} checks", checks.len()));
@@ -805,8 +805,8 @@ async fn update(
     skip_confirm: bool,
     _verbose: bool,
 ) -> Result<()> {
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
     // Check if any options were provided (non-interactive mode)
@@ -1437,6 +1437,48 @@ async fn resolve_check(ctx: &Context, project_id: &str, slug_or_id: &str) -> Res
         .ok_or_else(|| CliError::CheckNotFound(slug_or_id.to_string()).into())
 }
 
+/// Resolve a check by slug or ID using org context (for read-only commands)
+/// This allows finding checks across all projects in the organization.
+async fn resolve_check_by_org(ctx: &Context, org_id: &str, slug_or_id: &str) -> Result<Check> {
+    let client = ApiClient::new(ctx)?;
+
+    // Try to parse as UUID first
+    if let Ok(uuid) = Uuid::parse_str(slug_or_id) {
+        let url = format!("/api/v1/checks/{}", uuid);
+        return client.get(&url).await;
+    }
+
+    // Try cache lookup (using org_id as key)
+    let cache = CheckCache::load()?;
+    if let Some(entry) = cache.get(org_id, slug_or_id) {
+        let url = format!("/api/v1/checks/{}", entry.check_id);
+        match client.get::<Check>(&url).await {
+            Ok(check) => return Ok(check),
+            Err(_) => {
+                // Cache miss (check deleted?), invalidate and continue
+                let mut cache = CheckCache::load()?;
+                cache.invalidate(org_id, slug_or_id);
+                cache.save()?;
+            }
+        }
+    }
+
+    // Fetch all checks from org and find by slug
+    let url = format!("/api/v1/checks?org_id={}", org_id);
+    let checks: Vec<CheckWithProject> = client.get(&url).await?;
+
+    // Update cache with org_id
+    let mut cache = CheckCache::load()?;
+    cache.update_from_checks(org_id, checks.iter().map(|c| c.check.clone()));
+    cache.save()?;
+
+    checks
+        .into_iter()
+        .map(|c| c.check)
+        .find(|c| c.slug.eq_ignore_ascii_case(slug_or_id))
+        .ok_or_else(|| CliError::CheckNotFound(slug_or_id.to_string()).into())
+}
+
 /// Resolve a check's public_id by slug (for ping commands)
 pub async fn resolve_public_id(ctx: &Context, project_id: &str, slug: &str) -> Result<Uuid> {
     // Try cache first
@@ -1588,8 +1630,8 @@ async fn inspect(ctx: &Context, slug_or_id: &str, verbose: bool) -> Result<()> {
     use crate::output::OutputConfig;
     use console::style;
 
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
     if verbose {
@@ -1764,8 +1806,8 @@ async fn doctor(
     use crate::cli::OutputFormat;
     use console::style;
 
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
     if verbose {
@@ -1915,8 +1957,8 @@ async fn tail(
     use console::style;
     use std::collections::HashSet;
 
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let org_id = ctx.require_org()?;
+    let check = resolve_check_by_org(ctx, org_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
     let config = OutputConfig::from_context(ctx);
