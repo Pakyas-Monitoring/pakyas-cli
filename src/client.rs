@@ -228,6 +228,23 @@ impl ApiClient {
         self.handle_response(response).await
     }
 
+    /// PATCH request that expects no response body (204 No Content)
+    pub async fn patch_no_response(&self, path: &str) -> Result<()> {
+        let api_key = self.require_auth()?;
+        let url = format!("{}{}", self.base_url, path);
+
+        let request = self.client.patch(&url);
+        let request = self.add_common_headers(request, api_key);
+
+        let response = request.send().await?;
+
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(Self::handle_error(response).await.into())
+        }
+    }
+
     pub async fn put<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
         let api_key = self.require_auth()?;
         let url = format!("{}{}", self.base_url, path);

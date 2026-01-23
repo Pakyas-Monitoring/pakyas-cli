@@ -632,32 +632,33 @@ async fn show(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
     Ok(())
 }
 
-/// Pause a check
-async fn pause(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
+/// Set check state (pause or resume)
+async fn set_check_state(ctx: &Context, slug_or_id: &str, action: &str) -> Result<()> {
     let project_id = ctx.require_project()?;
     let check = resolve_check(ctx, project_id, slug_or_id).await?;
     let client = ApiClient::new(ctx)?;
 
-    let url = format!("/api/v1/checks/{}/pause", check.id);
-    let _: Check = client.post_no_body(&url).await?;
+    let url = format!("/api/v1/checks/{}/{}", check.id, action);
+    client.patch_no_response(&url).await?;
 
-    print_success(&format!("Paused check: {}", check.name));
+    let verb = if action == "pause" {
+        "Paused"
+    } else {
+        "Resumed"
+    };
+    print_success(&format!("{} check: {}", verb, check.name));
 
     Ok(())
 }
 
+/// Pause a check
+async fn pause(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
+    set_check_state(ctx, slug_or_id, "pause").await
+}
+
 /// Resume a paused check
 async fn resume(ctx: &Context, slug_or_id: &str, _verbose: bool) -> Result<()> {
-    let project_id = ctx.require_project()?;
-    let check = resolve_check(ctx, project_id, slug_or_id).await?;
-    let client = ApiClient::new(ctx)?;
-
-    let url = format!("/api/v1/checks/{}/resume", check.id);
-    let _: Check = client.post_no_body(&url).await?;
-
-    print_success(&format!("Resumed check: {}", check.name));
-
-    Ok(())
+    set_check_state(ctx, slug_or_id, "resume").await
 }
 
 /// Delete a check
