@@ -286,7 +286,7 @@ async fn switch(ctx: &Context, name_or_id: &str, no_prompt: bool, verbose: bool)
 
     print_success(&format!("Switched to organization: {}", org_name));
     if let Some(project) = project_name {
-        print_info(&format!("Active project: {}", project));
+        print_info(&format!("Default project: {}", project));
     }
 
     // Warn if env var is still set (user used --ignore-env)

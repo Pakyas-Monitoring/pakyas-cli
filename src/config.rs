@@ -1,4 +1,4 @@
-use crate::cli::OutputFormat;
+use crate::cli::{OutputFormat, TimeDisplayMode, TimeZoneMode};
 use crate::error::CliError;
 use anyhow::Result;
 use directories::ProjectDirs;
@@ -96,6 +96,16 @@ pub struct Context {
     format_override: Option<OutputFormat>,
     /// When true, ignore PAKYAS_API_KEY env var
     ignore_env: bool,
+    /// Timezone mode for timestamps
+    tz_mode: TimeZoneMode,
+    /// Time display mode
+    time_display_mode: TimeDisplayMode,
+    /// Disable colored output
+    no_color: bool,
+    /// Plain output without symbols
+    plain: bool,
+    /// Debug HTTP requests
+    debug_http: bool,
 }
 
 // Path-injectable methods for testing
@@ -130,6 +140,11 @@ impl Context {
             project_override: None,
             format_override: None,
             ignore_env: false,
+            tz_mode: TimeZoneMode::Local,
+            time_display_mode: TimeDisplayMode::Both,
+            no_color: false,
+            plain: false,
+            debug_http: false,
         })
     }
 
@@ -141,6 +156,11 @@ impl Context {
             project_override: None,
             format_override: None,
             ignore_env: false,
+            tz_mode: TimeZoneMode::Local,
+            time_display_mode: TimeDisplayMode::Both,
+            no_color: false,
+            plain: false,
+            debug_http: false,
         }
     }
 
@@ -203,6 +223,46 @@ impl Context {
 
     pub fn output_format(&self) -> OutputFormat {
         self.format_override.unwrap_or_default()
+    }
+
+    pub fn timezone_mode(&self) -> TimeZoneMode {
+        self.tz_mode
+    }
+
+    pub fn set_timezone_mode(&mut self, mode: TimeZoneMode) {
+        self.tz_mode = mode;
+    }
+
+    pub fn time_display_mode(&self) -> TimeDisplayMode {
+        self.time_display_mode
+    }
+
+    pub fn set_time_display_mode(&mut self, mode: TimeDisplayMode) {
+        self.time_display_mode = mode;
+    }
+
+    pub fn no_color(&self) -> bool {
+        self.no_color
+    }
+
+    pub fn set_no_color(&mut self, no_color: bool) {
+        self.no_color = no_color;
+    }
+
+    pub fn plain(&self) -> bool {
+        self.plain
+    }
+
+    pub fn set_plain(&mut self, plain: bool) {
+        self.plain = plain;
+    }
+
+    pub fn debug_http(&self) -> bool {
+        self.debug_http
+    }
+
+    pub fn set_debug_http(&mut self, debug_http: bool) {
+        self.debug_http = debug_http;
     }
 
     pub fn require_org(&self) -> Result<&str, CliError> {

@@ -6,7 +6,7 @@ use crate::error::CliError;
 use crate::output::{print_error, print_info, print_success, print_warning};
 use anyhow::Result;
 use chrono::Utc;
-use dialoguer::{Input, Password, Select};
+use dialoguer::{Input, Password};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -130,9 +130,9 @@ fn print_login_summary(
         println!("  Organization: {}", org_name);
     }
     if let Some(project_name) = project_name {
-        println!("  Project:      {}", project_name);
+        println!("  Default project: {}", project_name);
     } else {
-        println!("  Project:      (none)");
+        println!("  Default project: (none)");
     }
     if let Some(api_key) = api_key {
         let prefix = if api_key.len() > 12 {
@@ -637,13 +637,13 @@ pub async fn whoami(ctx: &Context, verbose: bool) -> Result<()> {
         println!("Organization: (none selected)");
     }
 
-    // Show active project
+    // Show default project
     if let Some(project_name) = ctx.active_project_name() {
-        println!("Project: {}", project_name);
+        println!("Default project: {}", project_name);
     } else if let Some(project_id) = ctx.active_project_id() {
-        println!("Project ID: {}", project_id);
+        println!("Default project ID: {}", project_id);
     } else {
-        println!("Project: (none selected)");
+        println!("Default project: (none set)");
     }
 
     // Show API key prefix if available
@@ -720,8 +720,8 @@ pub async fn auth_status(ctx: &Context, verbose: bool) -> Result<()> {
     }
     println!();
 
-    // Active project
-    println!("Active Project:");
+    // Default project
+    println!("Default Project:");
     if let Some(project_name) = ctx.active_project_name() {
         println!("  Name: {}", project_name);
     }
@@ -807,10 +807,10 @@ fn load_credentials_ignoring_env() -> Result<CredentialsV2, CliError> {
     }
 }
 
-/// Interactively select a project for the given organization.
+/// Auto-select the first project for the given organization.
 ///
-/// Returns `Some((project_id, project_name))` if a project was selected,
-/// or `None` if no projects exist or selection failed.
+/// Returns `Some((project_id, project_name))` if a project exists,
+/// or `None` if no projects exist.
 async fn select_project_interactive(
     client: &ApiClient,
     org_id: &Uuid,
@@ -821,29 +821,13 @@ async fn select_project_interactive(
         Err(_) => return Ok(None), // Can't fetch projects, skip selection
     };
 
-    match projects.len() {
-        0 => {
-            print_info("No projects found. Create one with 'pakyas project create'");
-            Ok(None)
-        }
-        1 => {
-            // Auto-select the only project
-            let project = &projects[0];
-            print_info(&format!("Using project: {}", project.name));
-            Ok(Some((project.id.to_string(), project.name.clone())))
-        }
-        _ => {
-            // Multiple projects - let user choose
-            let project_names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
-
-            let selection = Select::new()
-                .with_prompt("Select a project")
-                .items(&project_names)
-                .default(0)
-                .interact()?;
-
-            let selected = &projects[selection];
-            Ok(Some((selected.id.to_string(), selected.name.clone())))
-        }
+    if projects.is_empty() {
+        print_info("No projects found. Create one with 'pakyas project create'");
+        Ok(None)
+    } else {
+        // Auto-select the first project as default
+        let project = &projects[0];
+        print_info(&format!("Default project: {}", project.name));
+        Ok(Some((project.id.to_string(), project.name.clone())))
     }
 }

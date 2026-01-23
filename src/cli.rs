@@ -11,7 +11,7 @@ pub struct Cli {
     #[arg(long, global = true, env = "PAKYAS_ORG")]
     pub org: Option<String>,
 
-    /// Override active project
+    /// Override default project (accepts ID, name, or slug)
     #[arg(long, global = true, env = "PAKYAS_PROJECT")]
     pub project: Option<String>,
 
@@ -30,6 +30,38 @@ pub struct Cli {
     /// Ignore PAKYAS_API_KEY environment variable for this command
     #[arg(long, global = true)]
     pub ignore_env: bool,
+
+    /// Timezone for timestamps: local or utc
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "local",
+        env = "PAKYAS_TZ"
+    )]
+    pub tz: TimeZoneMode,
+
+    /// Time display mode: relative, absolute, or both
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        default_value = "both",
+        env = "PAKYAS_TIME"
+    )]
+    pub time: TimeDisplayMode,
+
+    /// Disable colored output
+    #[arg(long, global = true, env = "NO_COLOR")]
+    pub no_color: bool,
+
+    /// Plain output without symbols/emojis
+    #[arg(long, global = true)]
+    pub plain: bool,
+
+    /// Print HTTP requests/responses to stderr (debugging)
+    #[arg(long, global = true)]
+    pub debug_http: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -133,21 +165,34 @@ pub enum ProjectCommands {
         description: Option<String>,
     },
 
-    /// Switch active project
-    Switch {
-        /// Project name or ID (use quotes for names with spaces)
+    /// Set the default project for commands
+    #[command(alias = "switch")]
+    Default {
+        /// Project name, ID, or slug (use quotes for names with spaces)
         #[arg(num_args = 1..)]
         name: Vec<String>,
     },
 }
 
+/// Severity level for doctor --fail-on flag.
+#[derive(Clone, Copy, Debug, Default, ValueEnum, PartialEq, Eq)]
+pub enum FailOnSeverity {
+    /// Fail only on error-level findings
+    #[default]
+    Error,
+    /// Fail on warning or error findings
+    Warning,
+    /// Fail on any finding (info, warning, or error)
+    Info,
+}
+
 #[derive(Subcommand, Clone)]
 pub enum CheckCommands {
-    /// List all checks in the active project
+    /// List all checks in the organization (filter with --project)
     List {
-        /// List all checks across the organization (not just active project)
+        /// Filter to specific project (by ID, name, or slug)
         #[arg(long)]
-        all: bool,
+        project: Option<String>,
     },
 
     /// Create a new check
@@ -241,6 +286,48 @@ pub enum CheckCommands {
 
     /// Force refresh the local check cache
     Sync,
+
+    /// Inspect a check's current state and configuration (debugging)
+    Inspect {
+        /// Check slug or ID
+        slug: String,
+    },
+
+    /// Run diagnostic analysis on a check
+    Doctor {
+        /// Check slug or ID
+        slug: String,
+
+        /// Perform deep analysis (slower but more comprehensive)
+        #[arg(long)]
+        deep: bool,
+
+        /// Exit with error code if findings meet severity threshold
+        #[arg(long, value_enum, default_value = "error")]
+        fail_on: FailOnSeverity,
+    },
+
+    /// Stream timeline events for a check (follow mode)
+    Tail {
+        /// Check slug or ID
+        slug: String,
+
+        /// Show events since this time (e.g., "30m", "1h", "2024-01-01T00:00:00Z")
+        #[arg(long, default_value = "30m")]
+        since: String,
+
+        /// Event types to show: signal, state, alert (comma-separated)
+        #[arg(long)]
+        types: Option<String>,
+
+        /// Follow mode: continuously poll for new events
+        #[arg(short, long)]
+        follow: bool,
+
+        /// Number of events to fetch per request
+        #[arg(long, default_value = "50")]
+        limit: i64,
+    },
 
     /// Update a check's configuration
     Update {
@@ -365,13 +452,39 @@ pub struct MonitorArgs {
     pub migration_mode: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, ValueEnum, PartialEq, Eq)]
 pub enum OutputFormat {
     /// Display as formatted table
     #[default]
     Table,
     /// Display as JSON
     Json,
+    /// Display as NDJSON (one JSON object per line)
+    Ndjson,
+    /// Display as YAML
+    Yaml,
+}
+
+/// Timezone mode for timestamp display.
+#[derive(Clone, Copy, Debug, Default, ValueEnum, PartialEq, Eq)]
+pub enum TimeZoneMode {
+    /// Display timestamps in local timezone
+    #[default]
+    Local,
+    /// Display timestamps in UTC
+    Utc,
+}
+
+/// Time display mode for timestamps.
+#[derive(Clone, Copy, Debug, Default, ValueEnum, PartialEq, Eq)]
+pub enum TimeDisplayMode {
+    /// Show only relative time (e.g., "5m ago")
+    Relative,
+    /// Show only absolute time
+    Absolute,
+    /// Show both relative and absolute time
+    #[default]
+    Both,
 }
 
 #[derive(Subcommand, Clone)]

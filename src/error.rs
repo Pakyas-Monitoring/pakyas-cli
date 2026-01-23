@@ -8,7 +8,9 @@ pub enum CliError {
     #[error("No organization selected. Run: pakyas org switch <NAME>")]
     NoOrgSelected,
 
-    #[error("No project selected. Run: pakyas project switch <NAME>")]
+    #[error(
+        "No default project set for creating checks.\nRun: pakyas project default <NAME>\nOr specify --project <ID|NAME|SLUG>"
+    )]
     NoProjectSelected,
 
     #[error("Organization '{0}' not found. Run: pakyas org list")]

@@ -32,6 +32,11 @@ async fn run() -> Result<ExitCode> {
     if let Some(format) = cli.format {
         ctx.set_format(format);
     }
+    ctx.set_timezone_mode(cli.tz);
+    ctx.set_time_display_mode(cli.time);
+    ctx.set_no_color(cli.no_color);
+    ctx.set_plain(cli.plain);
+    ctx.set_debug_http(cli.debug_http);
 
     // Start update check early (non-blocking) for eligible commands
     let update_handle = if should_check_updates(&cli) {

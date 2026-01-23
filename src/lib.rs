@@ -10,6 +10,7 @@ pub mod config;
 pub mod credentials;
 pub mod cron;
 pub mod error;
+pub mod exit_codes;
 pub mod external_monitors;
 pub mod external_ping;
 pub mod lock;

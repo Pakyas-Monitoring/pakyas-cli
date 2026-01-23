@@ -13,12 +13,13 @@ use uuid::Uuid;
 // API Types
 // ============================================================================
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Project {
-    id: Uuid,
-    org_id: Uuid,
-    name: String,
-    description: Option<String>,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Project {
+    pub id: Uuid,
+    pub org_id: Uuid,
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,12 +37,14 @@ struct CreateProjectRequest {
 struct ProjectRow {
     #[tabled(rename = "NAME")]
     name: String,
+    #[tabled(rename = "SLUG")]
+    slug: String,
     #[tabled(rename = "ID")]
     id: String,
     #[tabled(rename = "DESCRIPTION")]
     description: String,
-    #[tabled(rename = "ACTIVE")]
-    active: String,
+    #[tabled(rename = "DEFAULT")]
+    default: String,
 }
 
 // ============================================================================
@@ -62,7 +65,7 @@ pub async fn handle(ctx: &Context, command: ProjectCommands, verbose: bool) -> R
         ProjectCommands::Create { name, description } => {
             create(ctx, name, description, verbose).await
         }
-        ProjectCommands::Switch { name } => switch(ctx, name, verbose).await,
+        ProjectCommands::Default { name } => set_default(ctx, name, verbose).await,
     }
 }
 
@@ -88,12 +91,13 @@ async fn list(ctx: &Context, verbose: bool) -> Result<()> {
     let rows: Vec<ProjectRow> = projects
         .into_iter()
         .map(|p| {
-            let is_active = active_project_id == Some(p.id.to_string().as_str());
+            let is_default = active_project_id == Some(p.id.to_string().as_str());
             ProjectRow {
                 name: p.name,
+                slug: p.slug,
                 id: p.id.to_string(),
                 description: p.description.unwrap_or_default(),
-                active: if is_active { "*" } else { "" }.to_string(),
+                default: if is_default { "*" } else { "" }.to_string(),
             }
         })
         .collect();
@@ -157,26 +161,26 @@ async fn create(
     config.save()?;
 
     print_success(&format!("Created project: {}", project.name));
-    print_success("Set as active project");
+    print_success("Set as default project");
 
     Ok(())
 }
 
-/// Switch the active project.
-async fn switch(ctx: &Context, name_parts: Vec<String>, verbose: bool) -> Result<()> {
+/// Set the default project.
+async fn set_default(ctx: &Context, name_parts: Vec<String>, verbose: bool) -> Result<()> {
     // Check if user forgot quotes for multi-word project name
     if name_parts.len() > 1 {
         return Err(CliError::Other(format!(
             "Project name appears to have spaces. Did you forget quotes?\n\
-             Try: pakyas project switch \"{}\"",
+             Try: pakyas project default \"{}\"",
             name_parts.join(" ")
         ))
         .into());
     }
-    let name_or_id = &name_parts[0];
+    let identifier = &name_parts[0];
 
     if verbose {
-        eprintln!("[verbose] Searching for project: {}", name_or_id);
+        eprintln!("[verbose] Searching for project: {}", identifier);
     }
 
     let org_id = ctx.require_org()?;
@@ -185,14 +189,21 @@ async fn switch(ctx: &Context, name_parts: Vec<String>, verbose: bool) -> Result
     let url = format!("/api/v1/projects?org_id={}", org_id);
     let projects: Vec<Project> = client.get(&url).await?;
 
-    // Find project by name or ID
+    // Find project by ID, slug, or name (in that order of precedence)
     let project = projects
         .iter()
-        .find(|p| p.name.eq_ignore_ascii_case(name_or_id) || p.id.to_string() == *name_or_id)
-        .ok_or_else(|| CliError::ProjectNotFound(name_or_id.to_string()))?;
+        .find(|p| {
+            p.id.to_string() == *identifier
+                || p.slug == *identifier
+                || p.name.eq_ignore_ascii_case(identifier)
+        })
+        .ok_or_else(|| CliError::ProjectNotFound(identifier.to_string()))?;
 
     if verbose {
-        eprintln!("[verbose] Found project: {} ({})", project.name, project.id);
+        eprintln!(
+            "[verbose] Found project: {} ({}) slug={}",
+            project.name, project.id, project.slug
+        );
     }
 
     // Update config
@@ -201,7 +212,26 @@ async fn switch(ctx: &Context, name_parts: Vec<String>, verbose: bool) -> Result
     config.active_project_name = Some(project.name.clone());
     config.save()?;
 
-    print_success(&format!("Switched to project: {}", project.name));
+    print_success(&format!("Set default project: {}", project.name));
 
     Ok(())
+}
+
+/// Resolve a project by ID, slug, or name within the organization.
+/// This is used by commands that accept --project flag.
+pub async fn resolve_project(ctx: &Context, identifier: &str) -> Result<Project> {
+    let org_id = ctx.require_org()?;
+    let client = ApiClient::new(ctx)?;
+
+    let url = format!("/api/v1/projects?org_id={}", org_id);
+    let projects: Vec<Project> = client.get(&url).await?;
+
+    projects
+        .into_iter()
+        .find(|p| {
+            p.id.to_string() == identifier
+                || p.slug == identifier
+                || p.name.eq_ignore_ascii_case(identifier)
+        })
+        .ok_or_else(|| CliError::ProjectNotFound(identifier.to_string()).into())
 }

@@ -1,9 +1,10 @@
 use crate::cache::{CheckCache, CheckLike};
-use crate::cli::CheckCommands;
+use crate::cli::{CheckCommands, FailOnSeverity};
 use crate::client::ApiClient;
 use crate::config::Context;
 use crate::cron::{effective_period_from_cron, next_cron_times_in_tz, validate_cron_expression};
 use crate::error::CliError;
+use crate::exit_codes;
 use crate::output::{format_status, print_output, print_single, print_success, print_warning};
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Utc};
@@ -157,22 +158,6 @@ struct PingHistoryResponse {
 // Display Types
 // ============================================================================
 
-#[derive(Debug, Tabled, Serialize)]
-struct CheckRow {
-    #[tabled(rename = "NAME")]
-    name: String,
-    #[tabled(rename = "SLUG")]
-    slug: String,
-    #[tabled(rename = "PUBLIC_ID")]
-    public_id: String,
-    #[tabled(rename = "STATUS")]
-    status: String,
-    #[tabled(rename = "PERIOD")]
-    period: String,
-    #[tabled(rename = "LAST PING")]
-    last_ping: String,
-}
-
 /// Check with project name for org-wide listing
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CheckWithProject {
@@ -242,7 +227,7 @@ pub async fn handle(ctx: &Context, command: CheckCommands, verbose: bool) -> Res
     }
 
     match command {
-        CheckCommands::List { all } => list(ctx, all, verbose).await,
+        CheckCommands::List { project } => list(ctx, project.as_deref(), verbose).await,
         CheckCommands::Create {
             slug,
             name,
@@ -313,79 +298,72 @@ pub async fn handle(ctx: &Context, command: CheckCommands, verbose: bool) -> Res
             )
             .await
         }
+        CheckCommands::Inspect { slug } => inspect(ctx, &slug, verbose).await,
+        CheckCommands::Doctor {
+            slug,
+            deep,
+            fail_on,
+        } => doctor(ctx, &slug, deep, fail_on, verbose).await,
+        CheckCommands::Tail {
+            slug,
+            since,
+            types,
+            follow,
+            limit,
+        } => tail(ctx, &slug, &since, types.as_deref(), follow, limit, verbose).await,
     }
 }
 
-/// List all checks in the active project or organization
-async fn list(ctx: &Context, all: bool, verbose: bool) -> Result<()> {
+/// List all checks in the organization (optionally filtered by project)
+async fn list(ctx: &Context, project_filter: Option<&str>, verbose: bool) -> Result<()> {
+    use crate::commands::project::resolve_project;
+
     let client = ApiClient::new(ctx)?;
+    let org_id = ctx.require_org()?;
 
-    if all {
-        // Org-wide listing
-        let org_id = ctx.require_org()?;
-        let url = format!("/api/v1/checks?org_id={}", org_id);
-
-        if verbose {
-            eprintln!("[verbose] Fetching all checks for org from: {}", url);
-        }
-
-        let checks: Vec<CheckWithProject> = client.get(&url).await?;
-
+    // If project filter specified, resolve it and filter by project_id
+    let url = if let Some(project_identifier) = project_filter {
+        let project = resolve_project(ctx, project_identifier).await?;
         if verbose {
             eprintln!(
-                "[verbose] Found {} check(s) across organization",
-                checks.len()
+                "[verbose] Filtering to project: {} ({})",
+                project.name, project.id
             );
         }
-
-        let rows: Vec<CheckRowWithProject> = checks
-            .into_iter()
-            .map(|c| CheckRowWithProject {
-                project: c.project_name,
-                name: c.check.name,
-                slug: c.check.slug,
-                public_id: c.check.public_id.to_string(),
-                status: format_status(&c.check.status),
-                period: format_duration(c.check.period_seconds),
-                last_ping: format_relative_time(c.check.last_ping_at),
-            })
-            .collect();
-
-        print_output(ctx, rows)?;
+        format!("/api/v1/checks?project_id={}", project.id)
     } else {
-        // Project-scoped listing (existing behavior)
-        let project_id = ctx.require_project()?;
-        let url = format!("/api/v1/checks?project_id={}", project_id);
+        format!("/api/v1/checks?org_id={}", org_id)
+    };
 
-        if verbose {
-            eprintln!("[verbose] Fetching checks from: {}", url);
-        }
-
-        let checks: Vec<Check> = client.get(&url).await?;
-
-        if verbose {
-            eprintln!("[verbose] Found {} check(s)", checks.len());
-        }
-
-        // Update cache
-        let mut cache = CheckCache::load()?;
-        cache.update_from_checks(project_id, checks.iter().cloned());
-        cache.save()?;
-
-        let rows: Vec<CheckRow> = checks
-            .into_iter()
-            .map(|c| CheckRow {
-                name: c.name,
-                slug: c.slug,
-                public_id: c.public_id.to_string(),
-                status: format_status(&c.status),
-                period: format_duration(c.period_seconds),
-                last_ping: format_relative_time(c.last_ping_at),
-            })
-            .collect();
-
-        print_output(ctx, rows)?;
+    if verbose {
+        eprintln!("[verbose] Fetching checks from: {}", url);
     }
+
+    let checks: Vec<CheckWithProject> = client.get(&url).await?;
+
+    if verbose {
+        eprintln!("[verbose] Found {} check(s)", checks.len());
+    }
+
+    // Update cache with org_id (for org-wide cache)
+    let mut cache = CheckCache::load()?;
+    cache.update_from_checks(org_id, checks.iter().map(|c| c.check.clone()));
+    cache.save()?;
+
+    let rows: Vec<CheckRowWithProject> = checks
+        .into_iter()
+        .map(|c| CheckRowWithProject {
+            project: c.project_name,
+            name: c.check.name,
+            slug: c.check.slug,
+            public_id: c.check.public_id.to_string(),
+            status: format_status(&c.check.status),
+            period: format_duration(c.check.period_seconds),
+            last_ping: format_relative_time(c.check.last_ping_at),
+        })
+        .collect();
+
+    print_output(ctx, rows)?;
 
     Ok(())
 }
@@ -450,7 +428,7 @@ async fn create(
             let period = effective_period_from_cron(cron_expr).unwrap_or(3600);
 
             let (grace_val, auto) = if let Some(g) = &grace {
-                (parse_duration_enhanced(g)?, false)
+                (parse_duration(g)?, false)
             } else {
                 (smart_grace(period), true)
             };
@@ -458,10 +436,10 @@ async fn create(
             (Some(cron_expr.clone()), tz.clone(), period, grace_val, auto)
         } else {
             let every_str = every.as_ref().unwrap();
-            let period = parse_duration_enhanced(every_str)?;
+            let period = parse_duration(every_str)?;
 
             let (grace_val, auto) = if let Some(g) = &grace {
-                (parse_duration_enhanced(g)?, false)
+                (parse_duration(g)?, false)
             } else {
                 (smart_grace(period), true)
             };
@@ -600,7 +578,7 @@ async fn create_interactive(
             .with_prompt("Interval (e.g., 5m, 1h)")
             .interact_text()?;
 
-        let period = parse_duration_enhanced(&every_input)?;
+        let period = parse_duration(&every_input)?;
         (None, None, period)
     };
 
@@ -617,7 +595,7 @@ async fn create_interactive(
     let (grace_seconds, grace_auto) = if grace_input.trim().is_empty() {
         (default_grace, true)
     } else {
-        (parse_duration_enhanced(&grace_input)?, false)
+        (parse_duration(&grace_input)?, false)
     };
 
     // Description
@@ -1036,11 +1014,9 @@ fn build_update_request_from_options(
         None
     };
 
-    let period_seconds = every.map(|p| parse_duration_enhanced(&p)).transpose()?;
-    let grace_seconds = grace.map(|g| parse_duration_enhanced(&g)).transpose()?;
-    let max_runtime_seconds = max_runtime
-        .map(|m| parse_duration_enhanced(&m))
-        .transpose()?;
+    let period_seconds = every.map(|p| parse_duration(&p)).transpose()?;
+    let grace_seconds = grace.map(|g| parse_duration(&g)).transpose()?;
+    let max_runtime_seconds = max_runtime.map(|m| parse_duration(&m)).transpose()?;
     let tags_vec = tags.map(|t| {
         t.split(',')
             .map(|s| s.trim().to_string())
@@ -1254,8 +1230,20 @@ fn smart_grace(period_seconds: i32) -> i32 {
     grace.clamp(300, 3600)
 }
 
-/// Enhanced duration parsing supporting various formats
-fn parse_duration_enhanced(s: &str) -> Result<i32> {
+/// Style a status string with appropriate color
+fn styled_status(status: &str) -> console::StyledObject<&str> {
+    use console::style;
+    match status {
+        "up" | "success" | "healthy" => style(status).green(),
+        "down" | "missing" | "fail" | "critical" => style(status).red().bold(),
+        "late" | "overrunning" | "warning" | "attention_needed" => style(status).yellow(),
+        "running" | "start" => style(status).cyan(),
+        _ => style(status).dim(),
+    }
+}
+
+/// Parse duration string supporting various formats (e.g., "5m", "1h", "5 minutes", "2d")
+fn parse_duration(s: &str) -> Result<i32> {
     let s = s.trim().to_lowercase();
 
     // Try parsing as raw seconds first
@@ -1409,37 +1397,6 @@ fn print_dry_run(
     );
 }
 
-/// Parse duration string like "5m", "1h", "1d" or raw seconds (legacy)
-fn parse_duration(s: &str) -> Result<i32> {
-    let s = s.trim().to_lowercase();
-
-    // Try parsing as raw seconds first
-    if let Ok(secs) = s.parse::<i32>() {
-        return Ok(secs);
-    }
-
-    // Parse duration with unit suffix
-    if s.len() < 2 {
-        return Err(anyhow!("Invalid duration format: {}", s));
-    }
-
-    let (num_str, unit) = s.split_at(s.len() - 1);
-    let num: i32 = num_str
-        .parse()
-        .map_err(|_| anyhow!("Invalid duration number: {}", num_str))?;
-
-    match unit {
-        "s" => Ok(num),
-        "m" => Ok(num * 60),
-        "h" => Ok(num * 3600),
-        "d" => Ok(num * 86400),
-        _ => Err(anyhow!(
-            "Invalid duration unit '{}'. Use s (seconds), m (minutes), h (hours), or d (days)",
-            unit
-        )),
-    }
-}
-
 /// Resolve a check by slug or ID, using cache when possible
 async fn resolve_check(ctx: &Context, project_id: &str, slug_or_id: &str) -> Result<Check> {
     let client = ApiClient::new(ctx)?;
@@ -1558,4 +1515,574 @@ fn format_ping_type(ping_type: &str) -> String {
         "start" => format_status("running"),
         _ => ping_type.to_string(),
     }
+}
+
+// ============================================================================
+// Inspect Command
+// ============================================================================
+
+/// Response types for inspect endpoint
+#[derive(Debug, Deserialize, Serialize)]
+struct InspectResponse {
+    check_id: Uuid,
+    public_id: Uuid,
+    name: String,
+    slug: String,
+    ping_url: String,
+    project_name: String,
+    status: String,
+    status_since: DateTime<Utc>,
+    is_critical: bool,
+    critical_reason: Option<String>,
+    schedule: ScheduleInfo,
+    last_signal: Option<LastSignalInfo>,
+    alerting: AlertingInfo,
+    maintenance: MaintenanceInfo,
+    stats: StatsInfo,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ScheduleInfo {
+    kind: String,
+    period_seconds: i32,
+    cron_expression: Option<String>,
+    grace_seconds: i32,
+    timezone: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct LastSignalInfo {
+    signal_type: String,
+    at: DateTime<Utc>,
+    duration_ms: Option<i32>,
+    source_ip: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct AlertingInfo {
+    enabled: bool,
+    alert_after_miss_pings: i32,
+    alert_after_fail_pings: i32,
+    consecutive_missed_pings: i32,
+    consecutive_fail_pings: i32,
+    recipient_count: i32,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct MaintenanceInfo {
+    in_maintenance: bool,
+    reason: Option<String>,
+    ends_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct StatsInfo {
+    success_rate_24h: Option<f64>,
+    total_pings_24h: i64,
+    p95_duration_ms: Option<i64>,
+}
+
+/// Inspect a check's current state and configuration
+async fn inspect(ctx: &Context, slug_or_id: &str, verbose: bool) -> Result<()> {
+    use crate::cli::OutputFormat;
+    use crate::output::OutputConfig;
+    use console::style;
+
+    let project_id = ctx.require_project()?;
+    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let client = ApiClient::new(ctx)?;
+
+    if verbose {
+        eprintln!("[verbose] Fetching inspect data for check: {}", check.id);
+    }
+
+    let url = format!("/api/v1/checks/{}/inspect", check.id);
+    let response: InspectResponse = client.get(&url).await?;
+
+    // JSON output
+    if matches!(ctx.output_format(), OutputFormat::Json) {
+        print_single(ctx, &response)?;
+        return Ok(());
+    }
+
+    let config = OutputConfig::from_context(ctx);
+
+    // Human-readable output
+    println!(
+        "{}  {}  \"{}\"",
+        style("CHECK").bold(),
+        &response.check_id.to_string()[..8],
+        response.name
+    );
+    println!("{}    {}", style("URL").dim(), response.ping_url);
+    println!();
+
+    // State section
+    println!("{}", style("STATE").bold().underlined());
+    println!("  now          {}", styled_status(&response.status));
+    println!(
+        "  since        {}",
+        crate::output::format_timestamp(response.status_since, &config)
+    );
+    if response.is_critical {
+        let reason = response.critical_reason.as_deref().unwrap_or("unknown");
+        println!("  critical     {} ({})", style("yes").red().bold(), reason);
+    }
+    println!();
+
+    // Schedule section
+    println!("{}", style("SCHEDULE").bold().underlined());
+    println!("  kind         {}", response.schedule.kind);
+    if let Some(cron) = &response.schedule.cron_expression {
+        println!("  cron         {}", cron);
+        if let Some(tz) = &response.schedule.timezone {
+            println!("  timezone     {}", tz);
+        }
+    } else {
+        println!(
+            "  every        {}",
+            format_duration(response.schedule.period_seconds)
+        );
+    }
+    println!(
+        "  grace        {}",
+        format_duration(response.schedule.grace_seconds)
+    );
+    println!();
+
+    // Last signal section
+    println!("{}", style("LAST SIGNAL").bold().underlined());
+    if let Some(signal) = &response.last_signal {
+        let signal_styled = match signal.signal_type.as_str() {
+            "success" => style(&signal.signal_type).green(),
+            "fail" => style(&signal.signal_type).red(),
+            "start" => style(&signal.signal_type).cyan(),
+            _ => style(&signal.signal_type),
+        };
+        println!(
+            "  at           {}",
+            crate::output::format_timestamp(signal.at, &config)
+        );
+        println!("  status       {}", signal_styled);
+        if let Some(duration) = signal.duration_ms {
+            println!("  latency      {}ms", duration);
+        }
+        if let Some(ip) = &signal.source_ip {
+            println!("  source       {}", ip);
+        }
+    } else {
+        println!("  {}", style("(no signals received)").dim());
+    }
+    println!();
+
+    // Alerting section
+    println!("{}", style("ALERTING").bold().underlined());
+    let enabled_str = if response.alerting.enabled {
+        style("yes").green().to_string()
+    } else {
+        style("no").red().to_string()
+    };
+    println!("  enabled      {}", enabled_str);
+    if response.alerting.enabled {
+        println!(
+            "  thresholds   {} misses, {} fails before alert",
+            response.alerting.alert_after_miss_pings, response.alerting.alert_after_fail_pings
+        );
+        println!(
+            "  consecutive  {} misses, {} fails",
+            response.alerting.consecutive_missed_pings, response.alerting.consecutive_fail_pings
+        );
+        println!("  recipients   {}", response.alerting.recipient_count);
+    }
+    println!();
+
+    // Maintenance section
+    if response.maintenance.in_maintenance {
+        println!("{}", style("MAINTENANCE").bold().underlined());
+        println!("  active       {}", style("yes").yellow());
+        if let Some(reason) = &response.maintenance.reason {
+            println!("  reason       {}", reason);
+        }
+        if let Some(ends) = response.maintenance.ends_at {
+            println!(
+                "  ends         {}",
+                crate::output::format_timestamp(ends, &config)
+            );
+        }
+        println!();
+    }
+
+    // Stats section
+    println!("{}", style("STATS (24h)").bold().underlined());
+    if let Some(rate) = response.stats.success_rate_24h {
+        println!("  success      {:.1}%", rate * 100.0);
+    }
+    println!("  pings        {}", response.stats.total_pings_24h);
+    if let Some(p95) = response.stats.p95_duration_ms {
+        println!("  p95 latency  {}ms", p95);
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Doctor Command
+// ============================================================================
+
+/// Response types for doctor endpoint
+#[derive(Debug, Deserialize, Serialize)]
+struct DoctorReport {
+    check_id: Uuid,
+    check_name: String,
+    analyzed_at: DateTime<Utc>,
+    deep: bool,
+    findings: Vec<DoctorFinding>,
+    status: String,
+    summary: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct DoctorFinding {
+    code: String,
+    severity: String,
+    title: String,
+    description: String,
+    #[serde(default)]
+    details: Option<serde_json::Value>,
+    #[serde(default)]
+    suggested_actions: Vec<String>,
+}
+
+/// Run diagnostic analysis on a check
+async fn doctor(
+    ctx: &Context,
+    slug_or_id: &str,
+    deep: bool,
+    fail_on: FailOnSeverity,
+    verbose: bool,
+) -> Result<()> {
+    use crate::cli::OutputFormat;
+    use console::style;
+
+    let project_id = ctx.require_project()?;
+    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let client = ApiClient::new(ctx)?;
+
+    if verbose {
+        eprintln!("[verbose] Running doctor analysis for check: {}", check.id);
+        if deep {
+            eprintln!("[verbose] Deep analysis enabled");
+        }
+    }
+
+    let url = format!("/api/v1/checks/{}/doctor?deep={}", check.id, deep);
+    let report: DoctorReport = client.get(&url).await?;
+
+    // JSON output
+    if matches!(ctx.output_format(), OutputFormat::Json) {
+        print_single(ctx, &report)?;
+        // Check exit code based on findings
+        return check_doctor_exit(report, fail_on);
+    }
+
+    // Human-readable output
+    println!(
+        "{}  {}  \"{}\"",
+        style("DOCTOR").bold(),
+        &report.check_id.to_string()[..8],
+        report.check_name
+    );
+
+    // Status line
+    let status_styled = match report.status.as_str() {
+        "healthy" => style("✓ Healthy").green().to_string(),
+        "attention_needed" => style("! Attention needed").yellow().to_string(),
+        "critical" => style("✗ Critical").red().bold().to_string(),
+        _ => report.status.clone(),
+    };
+    println!("Result: {}", status_styled);
+    println!();
+
+    if report.findings.is_empty() {
+        println!("{}", style("No issues found").green());
+        return Ok(());
+    }
+
+    // Findings
+    println!("{}", style("DIAGNOSIS").bold().underlined());
+    for (i, finding) in report.findings.iter().enumerate() {
+        let severity_symbol = match finding.severity.as_str() {
+            "error" => style("✗").red().bold(),
+            "warning" => style("!").yellow(),
+            "info" => style("ℹ").blue(),
+            _ => style("•"),
+        };
+
+        println!("  {}) {} {}", i + 1, severity_symbol, finding.title);
+        if !finding.description.is_empty() {
+            // Wrap description at 60 chars and indent
+            for line in textwrap::wrap(&finding.description, 55) {
+                println!("     {}", style(&*line).dim());
+            }
+        }
+
+        // Show details if present
+        if let Some(details) = &finding.details {
+            println!("     {}", style("Evidence:").dim());
+            if let Some(obj) = details.as_object() {
+                for (key, value) in obj {
+                    let value_str = match value {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => serde_json::to_string(value).unwrap_or_default(),
+                    };
+                    println!("       - {}: {}", key, value_str);
+                }
+            }
+        }
+
+        // Show suggested actions
+        if !finding.suggested_actions.is_empty() {
+            println!("     {}", style("Next actions:").dim());
+            for action in &finding.suggested_actions {
+                println!("       - {}", action);
+            }
+        }
+        println!();
+    }
+
+    check_doctor_exit(report, fail_on)
+}
+
+/// Check if doctor should exit with error based on findings and fail_on setting
+fn check_doctor_exit(report: DoctorReport, fail_on: FailOnSeverity) -> Result<()> {
+    let has_error = report.findings.iter().any(|f| f.severity == "error");
+    let has_warning = report.findings.iter().any(|f| f.severity == "warning");
+    let has_info = report.findings.iter().any(|f| f.severity == "info");
+
+    let should_fail = match fail_on {
+        FailOnSeverity::Error => has_error,
+        FailOnSeverity::Warning => has_error || has_warning,
+        FailOnSeverity::Info => has_error || has_warning || has_info,
+    };
+
+    if should_fail {
+        std::process::exit(exit_codes::ISSUES);
+    }
+
+    Ok(())
+}
+
+// ============================================================================
+// Tail Command
+// ============================================================================
+
+/// Response types for events endpoint
+#[derive(Debug, Deserialize, Serialize)]
+struct EventsResponse {
+    events: Vec<EventItem>,
+    next_cursor: Option<String>,
+    has_more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct EventItem {
+    id: i64,
+    event_type: String,
+    occurred_at: DateTime<Utc>,
+    #[serde(default)]
+    effective_at: Option<DateTime<Utc>>,
+    source: String,
+    payload: serde_json::Value,
+    from_status: Option<String>,
+    to_status: Option<String>,
+    summary: String,
+}
+
+/// Stream timeline events for a check
+async fn tail(
+    ctx: &Context,
+    slug_or_id: &str,
+    since: &str,
+    types: Option<&str>,
+    follow: bool,
+    limit: i64,
+    verbose: bool,
+) -> Result<()> {
+    use crate::cli::OutputFormat;
+    use crate::output::{OutputConfig, print_ndjson};
+    use console::style;
+    use std::collections::HashSet;
+
+    let project_id = ctx.require_project()?;
+    let check = resolve_check(ctx, project_id, slug_or_id).await?;
+    let client = ApiClient::new(ctx)?;
+
+    let config = OutputConfig::from_context(ctx);
+    let is_ndjson = matches!(ctx.output_format(), OutputFormat::Ndjson);
+    let is_json = matches!(ctx.output_format(), OutputFormat::Json);
+
+    if verbose {
+        eprintln!("[verbose] Fetching events for check: {}", check.id);
+        eprintln!("[verbose] Since: {}, Follow: {}", since, follow);
+    }
+
+    // Build base URL with query params
+    let mut base_url = format!("/api/v1/checks/{}/events?limit={}", check.id, limit);
+    if !since.is_empty() {
+        base_url.push_str(&format!("&since={}", since));
+    }
+    if let Some(t) = types {
+        base_url.push_str(&format!("&types={}", t));
+    }
+
+    // Track seen event IDs to avoid duplicates in follow mode
+    let mut seen_ids: HashSet<i64> = HashSet::new();
+    let mut cursor: Option<String> = None;
+    let mut first_batch = true;
+    let mut all_events: Vec<EventItem> = Vec::new();
+
+    // Print header for human output
+    if !is_ndjson && !is_json && !follow {
+        println!(
+            "{}  \"{}\"  since={}",
+            style("TAIL").bold(),
+            check.name,
+            since
+        );
+        println!();
+    }
+
+    loop {
+        // Build URL with cursor if present
+        let url = if let Some(ref c) = cursor {
+            format!("{}&cursor={}", base_url, c)
+        } else {
+            base_url.clone()
+        };
+
+        let response: EventsResponse = client.get(&url).await?;
+
+        // Filter out already-seen events
+        let new_events: Vec<EventItem> = response
+            .events
+            .into_iter()
+            .filter(|e| seen_ids.insert(e.id))
+            .collect();
+
+        if !new_events.is_empty() {
+            if is_ndjson {
+                // Stream each event as NDJSON
+                for event in &new_events {
+                    print_ndjson(event)?;
+                }
+            } else if is_json {
+                // Collect for final JSON output (non-follow mode)
+                all_events.extend(new_events.clone());
+            } else {
+                // Human-readable output
+                for event in &new_events {
+                    print_event_line(event, &config);
+                }
+            }
+        }
+
+        // Update cursor for next iteration
+        cursor = response.next_cursor;
+
+        // If not following, exit after first complete fetch
+        if !follow {
+            // For JSON mode, output all collected events
+            if is_json {
+                print_single(ctx, &all_events)?;
+            }
+            break;
+        }
+
+        // In follow mode, if no more results, wait and poll again
+        if !response.has_more {
+            if first_batch && new_events.is_empty() && !is_ndjson && !is_json {
+                println!("{}", style("(no events in time range, waiting...)").dim());
+            }
+            first_batch = false;
+
+            // Exponential backoff: start at 2s, max 30s
+            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+            // Reset cursor to fetch new events from beginning
+            cursor = None;
+        }
+    }
+
+    Ok(())
+}
+
+/// Print a single event line in human-readable format
+fn print_event_line(event: &EventItem, config: &crate::output::OutputConfig) {
+    use console::style;
+
+    // Format timestamp as HH:MM:SS
+    let time_str = event.occurred_at.format("%H:%M:%S").to_string();
+
+    // Determine symbol and color based on event type
+    let (symbol, event_label) = match event.event_type.as_str() {
+        "run_started" => (style("▶").cyan(), "signal"),
+        "run_finished" => {
+            // Check if success or fail from summary
+            if event.summary.contains("success") {
+                (style("✓").green(), "signal")
+            } else {
+                (style("✗").red(), "signal")
+            }
+        }
+        "status_changed" => {
+            // Check if going to bad state
+            if let Some(to) = &event.to_status {
+                match to.as_str() {
+                    "down" | "missing" => (style("!").red().bold(), "state"),
+                    "late" | "overrunning" => (style("!").yellow(), "state"),
+                    "up" => (style("✓").green(), "state"),
+                    _ => (style("•").dim(), "state"),
+                }
+            } else {
+                (style("•").dim(), "state")
+            }
+        }
+        "alert_decision" => {
+            if event.summary.contains("sent") || event.summary.contains("fired") {
+                (style("⚠").red().bold(), "alert")
+            } else {
+                (style("○").dim(), "alert")
+            }
+        }
+        _ => (style("•").dim(), &event.event_type[..]),
+    };
+
+    // Print formatted line
+    let symbol_str = if config.plain {
+        match event.event_type.as_str() {
+            "run_started" => "[START]",
+            "run_finished" => {
+                if event.summary.contains("success") {
+                    "[OK]"
+                } else {
+                    "[FAIL]"
+                }
+            }
+            "status_changed" => "[STATE]",
+            "alert_decision" => "[ALERT]",
+            _ => "[-]",
+        }
+    } else {
+        &symbol.to_string()
+    };
+
+    println!(
+        "{}  {} {:8} {}",
+        style(&time_str).dim(),
+        symbol_str,
+        event_label,
+        event.summary
+    );
 }
