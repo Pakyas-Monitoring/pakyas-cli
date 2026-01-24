@@ -1,9 +1,9 @@
 use crate::cli::PingArgs;
-use crate::commands::check::resolve_public_id;
+use crate::commands::check::resolve_public_id_verbose;
 use crate::config::Context;
 use crate::external_monitors::ExternalMonitorConfig;
 use crate::external_ping::{EventType, PingEvent, dispatch_external_pings};
-use crate::output::{print_error, print_success};
+use crate::output::print_success;
 use crate::ua::user_agent;
 use anyhow::Result;
 use reqwest::Client;
@@ -19,28 +19,8 @@ pub async fn execute(ctx: &Context, args: PingArgs, verbose: bool) -> Result<()>
     }
 
     // Determine public_id: either from --public_id directly or via slug resolution
-    let public_id = if let Some(id) = args.public_id {
-        // Direct mode: use provided UUID, no auth needed
-        if verbose {
-            eprintln!("[verbose] Using direct public_id: {}", id);
-        }
-        id
-    } else {
-        // Slug mode: requires auth and project context
-        let slug = args
-            .slug
-            .as_ref()
-            .expect("slug required when --id not provided");
-        let project_id = ctx.require_project()?;
-        if verbose {
-            eprintln!("[verbose] Project ID: {}", project_id);
-            eprintln!(
-                "[verbose] Resolving slug '{}' in project {}",
-                slug, project_id
-            );
-        }
-        resolve_public_id(ctx, project_id, slug).await?
-    };
+    let public_id =
+        resolve_public_id_verbose(ctx, args.public_id, args.slug.as_deref(), verbose).await?;
 
     if verbose {
         eprintln!("[verbose] Resolved public_id: {}", public_id);
@@ -267,35 +247,5 @@ fn print_ping_success(args: &PingArgs, public_id: Uuid) {
         }
     } else {
         print_success(&format!("Sent success ping for '{}'", identifier));
-    }
-}
-
-/// Send a ping directly with public_id (used by monitor command)
-pub async fn send_ping_direct(ping_url: &str, public_id: Uuid, modifier: &str) -> Result<()> {
-    send_ping_direct_with_body(ping_url, public_id, modifier, None).await
-}
-
-/// Send a ping directly with public_id and optional body (used by monitor command for failures)
-pub async fn send_ping_direct_with_body(
-    ping_url: &str,
-    public_id: Uuid,
-    modifier: &str,
-    body: Option<&str>,
-) -> Result<()> {
-    let url = format!(
-        "{}/{}{}",
-        ping_url.trim_end_matches('/'),
-        public_id,
-        modifier
-    );
-
-    // Fire-and-forget: don't fail the wrapper command if ping fails
-    // Note: No run_id or duration here - monitor command uses its own internal functions
-    match send_ping_inner(&url, body, None, None).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            print_error(&format!("Warning: ping failed: {}", e));
-            Ok(()) // Don't propagate error
-        }
     }
 }

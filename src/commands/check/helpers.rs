@@ -307,6 +307,59 @@ pub async fn resolve_public_id(ctx: &Context, project_id: &str, slug: &str) -> R
     Ok(check.public_id)
 }
 
+/// Resolve a check's public_id by slug using org context (for ping/monitor commands)
+pub async fn resolve_public_id_by_org(ctx: &Context, org_id: &str, slug: &str) -> Result<Uuid> {
+    let cache = CheckCache::load()?;
+    if let Some(entry) = cache.get(org_id, slug) {
+        return Ok(entry.public_id);
+    }
+    let check = resolve_check_by_org(ctx, org_id, slug).await?;
+    Ok(check.public_id)
+}
+
+/// Resolve public_id with smart context: project first, then org
+pub async fn resolve_public_id_smart(ctx: &Context, slug: &str) -> Result<Uuid> {
+    if let Some(project_id) = ctx.active_project_id() {
+        return resolve_public_id(ctx, project_id, slug).await;
+    }
+    let org_id = ctx.require_org()?;
+    resolve_public_id_by_org(ctx, org_id, slug).await
+}
+
+/// Resolve public_id from either direct UUID or slug, with verbose logging
+pub async fn resolve_public_id_verbose(
+    ctx: &Context,
+    public_id: Option<Uuid>,
+    slug: Option<&str>,
+    verbose: bool,
+) -> Result<Uuid> {
+    if let Some(id) = public_id {
+        if verbose {
+            eprintln!("[verbose] Using direct public_id: {}", id);
+        }
+        return Ok(id);
+    }
+
+    let slug = slug.ok_or_else(|| anyhow!("slug required when --public-id not provided"))?;
+
+    if verbose {
+        if let Some(project_id) = ctx.active_project_id() {
+            eprintln!(
+                "[verbose] Resolving slug '{}' in project {}",
+                slug, project_id
+            );
+        } else {
+            eprintln!(
+                "[verbose] Resolving slug '{}' across org {}",
+                slug,
+                ctx.require_org()?
+            );
+        }
+    }
+
+    resolve_public_id_smart(ctx, slug).await
+}
+
 // ============================================================================
 // Output Helpers
 // ============================================================================

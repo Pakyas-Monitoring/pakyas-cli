@@ -12,7 +12,7 @@ mod types;
 mod update;
 
 // Re-export public API used by other modules (ping.rs, monitor.rs)
-pub use helpers::resolve_public_id;
+pub use helpers::{resolve_public_id, resolve_public_id_smart, resolve_public_id_verbose};
 pub use types::{Check, CheckWithProject};
 
 use crate::cli::CheckCommands;

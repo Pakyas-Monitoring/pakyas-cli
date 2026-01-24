@@ -1,5 +1,5 @@
 use crate::cli::MonitorArgs;
-use crate::commands::check::resolve_public_id;
+use crate::commands::check::resolve_public_id_verbose;
 use crate::config::Context;
 use crate::error::CliError;
 use crate::external_monitors::ExternalMonitorConfig;
@@ -49,27 +49,8 @@ pub async fn execute(ctx: &Context, args: MonitorArgs, verbose: bool) -> Result<
     }
 
     // Determine public_id: either from --public_id directly or via slug resolution
-    let public_id = if let Some(id) = args.public_id {
-        // Direct mode: use provided UUID, no auth needed
-        if verbose {
-            eprintln!("[verbose] Using direct public_id: {}", id);
-        }
-        id
-    } else {
-        // Slug mode: requires auth and project context
-        let slug = args
-            .slug
-            .as_ref()
-            .expect("slug required when --id not provided");
-        let project_id = ctx.require_project()?;
-        if verbose {
-            eprintln!(
-                "[verbose] Resolving slug '{}' in project {}",
-                slug, project_id
-            );
-        }
-        resolve_public_id(ctx, project_id, slug).await?
-    };
+    let public_id =
+        resolve_public_id_verbose(ctx, args.public_id, args.slug.as_deref(), verbose).await?;
 
     let ping_url = ctx.ping_url();
 
