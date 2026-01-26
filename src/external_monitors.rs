@@ -11,10 +11,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Default healthchecks.io endpoint
-const DEFAULT_HEALTHCHECKS_ENDPOINT: &str = "https://hc-ping.com";
+pub const DEFAULT_HEALTHCHECKS_ENDPOINT: &str = "https://hc-ping.com";
 
 /// Default cronitor telemetry endpoint
-const DEFAULT_CRONITOR_ENDPOINT: &str = "https://cronitor.link";
+pub const DEFAULT_CRONITOR_ENDPOINT: &str = "https://cronitor.link";
 
 /// Root configuration loaded from external_monitors.toml
 #[derive(Debug, Deserialize, Default)]
@@ -147,6 +147,61 @@ impl MonitorTarget {
             }
             MonitorTarget::Webhook { url } => url.clone(),
         }
+    }
+
+    /// Build monitor targets from inline CLI arguments
+    ///
+    /// This allows users to specify external monitors directly on the command line
+    /// without requiring a config file, useful for CI/CD environments.
+    pub fn from_cli_args(
+        healthchecks_id: Option<&str>,
+        healthchecks_endpoint: Option<&str>,
+        cronitor_key: Option<&str>,
+        cronitor_api_key: Option<&str>,
+        cronitor_endpoint: Option<&str>,
+        webhook_urls: &[String],
+    ) -> Vec<MonitorTarget> {
+        let mut targets = Vec::new();
+
+        // Healthchecks.io
+        if let Some(uuid) = healthchecks_id {
+            let endpoint = healthchecks_endpoint
+                .map(String::from)
+                .or_else(|| std::env::var("HEALTHCHECKS_ENDPOINT").ok())
+                .unwrap_or_else(|| DEFAULT_HEALTHCHECKS_ENDPOINT.to_string());
+
+            targets.push(MonitorTarget::Healthchecks {
+                endpoint,
+                uuid: uuid.to_string(),
+            });
+        }
+
+        // Cronitor
+        if let Some(monitor_key) = cronitor_key {
+            let api_key = cronitor_api_key
+                .map(String::from)
+                .or_else(|| std::env::var("CRONITOR_API_KEY").ok());
+
+            if let Some(api_key) = api_key {
+                let endpoint = cronitor_endpoint
+                    .map(String::from)
+                    .unwrap_or_else(|| DEFAULT_CRONITOR_ENDPOINT.to_string());
+
+                targets.push(MonitorTarget::Cronitor {
+                    endpoint,
+                    api_key,
+                    monitor_key: monitor_key.to_string(),
+                });
+            }
+            // Silently skip if no API key (matches config file behavior)
+        }
+
+        // Webhooks (multiple allowed)
+        for url in webhook_urls {
+            targets.push(MonitorTarget::Webhook { url: url.clone() });
+        }
+
+        targets
     }
 }
 
@@ -519,5 +574,143 @@ monitor_key = "my-job-monitor"
 
         // Cronitor should be skipped because no api_key
         assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn test_from_cli_args_empty() {
+        let targets = MonitorTarget::from_cli_args(None, None, None, None, None, &[]);
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn test_from_cli_args_healthchecks_only() {
+        let targets = MonitorTarget::from_cli_args(Some("test-uuid"), None, None, None, None, &[]);
+
+        assert_eq!(targets.len(), 1);
+        match &targets[0] {
+            MonitorTarget::Healthchecks { endpoint, uuid } => {
+                assert_eq!(endpoint, DEFAULT_HEALTHCHECKS_ENDPOINT);
+                assert_eq!(uuid, "test-uuid");
+            }
+            _ => panic!("Expected Healthchecks target"),
+        }
+    }
+
+    #[test]
+    fn test_from_cli_args_healthchecks_custom_endpoint() {
+        let targets = MonitorTarget::from_cli_args(
+            Some("test-uuid"),
+            Some("https://hc.internal.example.com"),
+            None,
+            None,
+            None,
+            &[],
+        );
+
+        assert_eq!(targets.len(), 1);
+        match &targets[0] {
+            MonitorTarget::Healthchecks { endpoint, uuid } => {
+                assert_eq!(endpoint, "https://hc.internal.example.com");
+                assert_eq!(uuid, "test-uuid");
+            }
+            _ => panic!("Expected Healthchecks target"),
+        }
+    }
+
+    #[test]
+    fn test_from_cli_args_cronitor_with_api_key() {
+        let targets = MonitorTarget::from_cli_args(
+            None,
+            None,
+            Some("my-monitor"),
+            Some("my-api-key"),
+            None,
+            &[],
+        );
+
+        assert_eq!(targets.len(), 1);
+        match &targets[0] {
+            MonitorTarget::Cronitor {
+                endpoint,
+                api_key,
+                monitor_key,
+            } => {
+                assert_eq!(endpoint, DEFAULT_CRONITOR_ENDPOINT);
+                assert_eq!(api_key, "my-api-key");
+                assert_eq!(monitor_key, "my-monitor");
+            }
+            _ => panic!("Expected Cronitor target"),
+        }
+    }
+
+    #[test]
+    fn test_from_cli_args_cronitor_custom_endpoint() {
+        let targets = MonitorTarget::from_cli_args(
+            None,
+            None,
+            Some("my-monitor"),
+            Some("my-api-key"),
+            Some("https://cronitor.internal.example.com"),
+            &[],
+        );
+
+        assert_eq!(targets.len(), 1);
+        match &targets[0] {
+            MonitorTarget::Cronitor { endpoint, .. } => {
+                assert_eq!(endpoint, "https://cronitor.internal.example.com");
+            }
+            _ => panic!("Expected Cronitor target"),
+        }
+    }
+
+    #[test]
+    fn test_from_cli_args_cronitor_without_api_key_skipped() {
+        let targets = MonitorTarget::from_cli_args(None, None, Some("my-monitor"), None, None, &[]);
+
+        // Should be empty because no API key
+        assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn test_from_cli_args_webhooks() {
+        let webhook_urls = vec![
+            "https://hook1.example.com".to_string(),
+            "https://hook2.example.com".to_string(),
+        ];
+        let targets = MonitorTarget::from_cli_args(None, None, None, None, None, &webhook_urls);
+
+        assert_eq!(targets.len(), 2);
+        match &targets[0] {
+            MonitorTarget::Webhook { url } => {
+                assert_eq!(url, "https://hook1.example.com");
+            }
+            _ => panic!("Expected Webhook target"),
+        }
+        match &targets[1] {
+            MonitorTarget::Webhook { url } => {
+                assert_eq!(url, "https://hook2.example.com");
+            }
+            _ => panic!("Expected Webhook target"),
+        }
+    }
+
+    #[test]
+    fn test_from_cli_args_all_monitors() {
+        let webhook_urls = vec!["https://hook.example.com".to_string()];
+        let targets = MonitorTarget::from_cli_args(
+            Some("hc-uuid"),
+            None,
+            Some("cronitor-monitor"),
+            Some("cronitor-api-key"),
+            None,
+            &webhook_urls,
+        );
+
+        assert_eq!(targets.len(), 3);
+
+        let names: Vec<_> = targets.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"healthchecks.io"));
+        assert!(names.contains(&"cronitor"));
+        assert!(names.contains(&"webhook"));
     }
 }

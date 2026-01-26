@@ -2,7 +2,7 @@ use crate::cli::MonitorArgs;
 use crate::commands::check::resolve_public_id_verbose;
 use crate::config::Context;
 use crate::error::CliError;
-use crate::external_monitors::ExternalMonitorConfig;
+use crate::external_monitors::{ExternalMonitorConfig, MonitorTarget};
 use crate::external_ping::{PingEvent, dispatch_await_any_success, dispatch_external_pings};
 use crate::output::{print_error, print_warning};
 use crate::ua::user_agent;
@@ -218,6 +218,8 @@ async fn await_external_handles(
 ///
 /// Returns the monitors list, migration mode flag, and the identifier to use for PingEvents.
 /// The identifier is either the slug (if available) or the public_id string.
+///
+/// Monitors are merged additively: CLI arguments + config file monitors.
 fn load_external_config(
     args: &MonitorArgs,
     public_id: uuid::Uuid,
@@ -247,6 +249,30 @@ fn load_external_config(
         }
     };
 
+    // Build CLI-specified monitors first
+    let cli_monitors = MonitorTarget::from_cli_args(
+        args.healthchecks_id.as_deref(),
+        args.healthchecks_endpoint.as_deref(),
+        args.cronitor_key.as_deref(),
+        args.cronitor_api_key.as_deref(),
+        args.cronitor_endpoint.as_deref(),
+        &args.webhook_url,
+    );
+
+    if verbose && !cli_monitors.is_empty() {
+        eprintln!(
+            "[verbose] Built {} monitor(s) from CLI arguments",
+            cli_monitors.len()
+        );
+        for target in &cli_monitors {
+            eprintln!(
+                "[verbose]   - {} (CLI): {}",
+                target.name(),
+                target.display_url()
+            );
+        }
+    }
+
     // Show config paths being checked
     if verbose {
         eprintln!("[verbose] Checking external monitors config paths:");
@@ -263,16 +289,36 @@ fn load_external_config(
                     eprintln!("[verbose] Using config: {}", path.display());
                 }
             }
-            let monitors = config.build_monitors_for_check(&config_key);
+            let config_monitors = config.build_monitors_for_check(&config_key);
+
+            if verbose && !config_monitors.is_empty() {
+                eprintln!(
+                    "[verbose] Loaded {} monitor(s) from config file",
+                    config_monitors.len()
+                );
+                for target in &config_monitors {
+                    eprintln!(
+                        "[verbose]   - {} (config): {}",
+                        target.name(),
+                        target.display_url()
+                    );
+                }
+            }
+
+            // Merge: CLI monitors + config file monitors (additive)
+            let mut all_monitors = cli_monitors;
+            all_monitors.extend(config_monitors);
+
             // CLI flag overrides config file
             let migration_mode = args.migration_mode || config.migration_mode;
-            (monitors, migration_mode, identifier)
+            (all_monitors, migration_mode, identifier)
         }
         Err(e) => {
             if verbose {
                 eprintln!("[verbose] Failed to load external monitors config: {}", e);
             }
-            (vec![], args.migration_mode, identifier)
+            // Still return CLI monitors even if config fails to load
+            (cli_monitors, args.migration_mode, identifier)
         }
     }
 }

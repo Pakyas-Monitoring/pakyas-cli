@@ -466,6 +466,30 @@ pub struct MonitorArgs {
     /// Migration mode: allow external success to override pakyas failure
     #[arg(long, env = "PAKYAS_MIGRATION_MODE")]
     pub migration_mode: bool,
+
+    /// Healthchecks.io check UUID for inline external monitoring
+    #[arg(long, value_name = "UUID", env = "PAKYAS_HEALTHCHECKS_ID")]
+    pub healthchecks_id: Option<String>,
+
+    /// Custom healthchecks.io endpoint (default: https://hc-ping.com)
+    #[arg(long, value_name = "URL", env = "HEALTHCHECKS_ENDPOINT")]
+    pub healthchecks_endpoint: Option<String>,
+
+    /// Cronitor monitor key for inline external monitoring
+    #[arg(long, value_name = "KEY", env = "PAKYAS_CRONITOR_KEY")]
+    pub cronitor_key: Option<String>,
+
+    /// Cronitor API key (required with --cronitor-key unless CRONITOR_API_KEY is set)
+    #[arg(long, value_name = "KEY", env = "CRONITOR_API_KEY")]
+    pub cronitor_api_key: Option<String>,
+
+    /// Custom cronitor endpoint (default: https://cronitor.link)
+    #[arg(long, value_name = "URL")]
+    pub cronitor_endpoint: Option<String>,
+
+    /// Webhook URL for inline external monitoring (can be specified multiple times)
+    #[arg(long, value_name = "URL", action = clap::ArgAction::Append)]
+    pub webhook_url: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, ValueEnum, PartialEq, Eq)]
