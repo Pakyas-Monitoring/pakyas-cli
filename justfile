@@ -63,3 +63,27 @@ compile-check:
 # Clean build artifacts
 clean:
     cargo clean
+
+# Prepare and push a release (usage: just release 0.1.8)
+release VERSION:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Update version in Cargo.toml
+    sed -i '' 's/^version = ".*"/version = "{{VERSION}}"/' Cargo.toml
+
+    # Update Cargo.lock
+    cargo check --quiet
+
+    # Commit the version bump
+    git add Cargo.toml Cargo.lock
+    git commit -m "chore(release): prepare v{{VERSION}}"
+
+    # Create tag
+    git tag "v{{VERSION}}"
+
+    # Push branch and tag
+    git push
+    git push origin "v{{VERSION}}"
+
+    echo "Released v{{VERSION}}"
